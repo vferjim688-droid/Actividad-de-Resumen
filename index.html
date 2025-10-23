@@ -136,44 +136,18 @@
         
         // --- INICIALIZACIÓN DE FIREBASE ---
         let app, auth, db, userId;
-        try {
-            app = initializeApp(firebaseConfig);
-            auth = getAuth(app);
-            db = getFirestore(app);
-        } catch(e) { console.error("Error inicializando Firebase:", e); }
-
-        onAuthStateChanged(auth, async (user) => {
-            if (user) {
-                userId = user.uid;
-            } else {
-                try {
-                     const initialToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
-                     if(initialToken) {
-                        await signInWithCustomToken(auth, initialToken);
-                     } else {
-                        await signInAnonymously(auth);
-                     }
-                } catch(e) { console.error("Error en autenticación:", e); }
-            }
-            if (userId) {
-                listenForLeaderboardUpdates();
-            }
-        });
-
+        
         // --- ESTADO DE LA APLICACIÓN ---
         let currentSectionIndex = 0;
-
-        // --- ELEMENTOS DEL DOM ---
-        // Se declaran aquí, pero se inicializan cuando el DOM esté listo
-        let allDOMElements = {};
+        let allDOMElements = {}; // Se llenará cuando la UI esté lista
 
         // --- LÓGICA PRINCIPAL ---
         function renderSection(index) {
+            // ... (el contenido de las funciones no cambia)
             const section = sectionsData[index];
             allDOMElements.sectionTitle.textContent = section.title;
             allDOMElements.sourceTextDisplay.innerHTML = section.content;
             
-            // Resetear UI para la nueva sección
             allDOMElements.studentSummary.value = '';
             allDOMElements.wordCount.textContent = '0';
             allDOMElements.feedbackArea.hidden = true;
@@ -217,7 +191,6 @@
                      return;
                 }
 
-                // Ordenar por progreso
                 progresses.sort((a, b) => b.progress - a.progress);
 
                 progresses.forEach(p => {
@@ -246,7 +219,6 @@
             });
         }
         
-        // --- LLAMADAS A API GEMINI ---
         async function callGeminiAPI(prompt, button) {
             const originalText = button.innerHTML;
             button.disabled = true;
@@ -272,11 +244,10 @@
             }
         }
         
-        // --- INICIO DE LA APLICACIÓN ---
-        // Esperamos a que el DOM esté completamente cargado antes de buscar elementos y añadir listeners
-        document.addEventListener('DOMContentLoaded', () => {
-            
-            // Ahora es seguro asignar los elementos del DOM
+        // --- FUNCIÓN DE ARRANQUE DE LA UI ---
+        // Esta función se llamará SOLO cuando la autenticación de Firebase esté lista.
+        function initializeAppUI() {
+            // 1. Asignar todos los elementos del DOM
             allDOMElements = {
                 userProgressBar: document.getElementById('user-progress-bar'),
                 leaderboard: document.getElementById('leaderboard'),
@@ -295,7 +266,7 @@
                 alternativeExplanationBtn: document.getElementById('alternative-explanation-btn'),
             };
 
-            // --- EVENTOS ---
+            // 2. Asignar todos los listeners de eventos
             allDOMElements.studentSummary.addEventListener('input', () => {
                 const text = allDOMElements.studentSummary.value.trim();
                 const words = text === '' ? 0 : text.split(/\s+/).length;
@@ -355,11 +326,50 @@
                 allDOMElements.geminiFeedbackArea.innerHTML = `<h3 class="text-xl font-bold mb-3 text-green-800">Valoración con IA</h3><div class="p-4 bg-green-50 border border-green-200 rounded-lg prose prose-custom text-gray-700">${evaluation}</div>`;
                 allDOMElements.geminiFeedbackArea.hidden = false;
             });
-
-            // --- INICIO ---
-            // Ahora esta llamada es segura porque el DOM está listo
+            
+            // 3. Iniciar el listener de Firestore
+            listenForLeaderboardUpdates();
+            
+            // 4. Cargar la primera sección
             renderSection(currentSectionIndex);
+        }
+
+        // --- PUNTO DE ENTRADA PRINCIPAL (AUTENTICACIÓN) ---
+        try {
+            app = initializeApp(firebaseConfig);
+            auth = getAuth(app);
+            db = getFirestore(app);
+        } catch(e) { console.error("Error inicializando Firebase:", e); }
+
+        onAuthStateChanged(auth, async (user) => {
+            if (user) {
+                // Usuario autenticado
+                userId = user.uid;
+                
+                // Evitar reinicializar si ya está cargado
+                if (allDOMElements.userProgressBar) return; 
+
+                // ¡AHORA es seguro arrancar la UI!
+                initializeAppUI();
+                
+            } else {
+                // No hay usuario, intentar autenticación anónima
+                try {
+                     const initialToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+                     if(initialToken) {
+                        await signInWithCustomToken(auth, initialToken);
+                     } else {
+                        await signInAnonymously(auth);
+                     }
+                     // onAuthStateChanged se volverá a llamar automáticamente tras el login
+                } catch(e) { 
+                    console.error("Error en autenticación:", e); 
+                    // Si falla la autenticación, mostrar un error al usuario
+                    document.body.innerHTML = '<div class="text-center p-8 text-red-500">Error fatal: No se pudo conectar con el servicio de autenticación.</div>';
+                }
+            }
         });
+
     </script>
 </body>
 </html>
