@@ -32,6 +32,15 @@
         }
         [hidden] { display: none !important; }
     </style>
+
+    <!--
+    Cargamos Firebase con el método "clásico" (compat) 
+    para asegurar la compatibilidad con GitHub Pages.
+    -->
+    <script src="https://www.gstatic.com/firebasejs/11.6.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/11.6.1/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore-compat.js"></script>
+
 </head>
 <body class="text-gray-800">
 
@@ -92,11 +101,7 @@
         </main>
     </div>
     
-    <script type="module">
-        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, doc, setDoc, collection, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
-
+    <script>
         // --- CONFIGURACIÓN Y DATOS ---
         const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
         const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
@@ -140,10 +145,10 @@
         // --- ESTADO DE LA APLICACIÓN ---
         let currentSectionIndex = 0;
         let allDOMElements = {}; // Se llenará cuando la UI esté lista
+        let userSummaries = []; // NUEVO: Almacenará los resúmenes del usuario
 
         // --- LÓGICA PRINCIPAL ---
         function renderSection(index) {
-            // ... (el contenido de las funciones no cambia)
             const section = sectionsData[index];
             allDOMElements.sectionTitle.textContent = section.title;
             allDOMElements.sourceTextDisplay.innerHTML = section.content;
@@ -170,16 +175,17 @@
         async function updateProgressInFirestore() {
             if (!userId || !db) return;
             const percentage = Math.round(((currentSectionIndex + 1) / sectionsData.length) * 100);
-            const userProgressRef = doc(db, `artifacts/${appId}/public/data/progress`, userId);
+            const userProgressRef = db.doc(`artifacts/${appId}/public/data/progress/${userId}`);
             try {
-                await setDoc(userProgressRef, { progress: percentage }, { merge: true });
+                await userProgressRef.set({ progress: percentage }, { merge: true });
             } catch(e) { console.error("Error guardando progreso:", e); }
         }
         
         function listenForLeaderboardUpdates() {
             if (!db) return;
-            const progressCollectionRef = collection(db, `artifacts/${appId}/public/data/progress`);
-            onSnapshot(progressCollectionRef, (snapshot) => {
+            const progressCollectionRef = db.collection(`artifacts/${appId}/public/data/progress`);
+            
+            progressCollectionRef.onSnapshot((snapshot) => {
                 const progresses = [];
                 snapshot.forEach(doc => {
                     progresses.push({ id: doc.id, ...doc.data() });
@@ -244,10 +250,29 @@
             }
         }
         
-        // --- FUNCIÓN DE ARRANQUE DE LA UI ---
-        // Esta función se llamará SOLO cuando la autenticación de Firebase esté lista.
+        // NUEVO: Función para descargar los resúmenes
+        function downloadSummaries() {
+            let fileContent = "Mis Resúmenes - Pensamiento Computacional\n\n";
+
+            userSummaries.forEach(item => {
+                fileContent += `========================================\n`;
+                fileContent += `${item.title}\n`;
+                fileContent += `========================================\n`;
+                fileContent += `${item.summary}\n\n`;
+            });
+
+            const blob = new Blob([fileContent], { type: 'text/plain;charset=utf-8' });
+            const link = document.createElement('a');
+            link.href = URL.createObjectURL(blob);
+            link.download = "mis_resumenes_computacion.txt";
+            
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            URL.revokeObjectURL(link.href);
+        }
+
         function initializeAppUI() {
-            // 1. Asignar todos los elementos del DOM
             allDOMElements = {
                 userProgressBar: document.getElementById('user-progress-bar'),
                 leaderboard: document.getElementById('leaderboard'),
@@ -266,7 +291,6 @@
                 alternativeExplanationBtn: document.getElementById('alternative-explanation-btn'),
             };
 
-            // 2. Asignar todos los listeners de eventos
             allDOMElements.studentSummary.addEventListener('input', () => {
                 const text = allDOMElements.studentSummary.value.trim();
                 const words = text === '' ? 0 : text.split(/\s+/).length;
@@ -297,15 +321,31 @@
             });
 
             allDOMElements.nextSectionBtn.addEventListener('click', () => {
-                updateProgressInFirestore(); // Guarda el progreso de la sección actual
+                // NUEVO: Guardar el resumen antes de avanzar
+                const currentSummary = allDOMElements.studentSummary.value;
+                const currentTitle = sectionsData[currentSectionIndex].title;
+                userSummaries.push({ title: currentTitle, summary: currentSummary });
+
+                updateProgressInFirestore(); 
                 currentSectionIndex++;
                 if (currentSectionIndex < sectionsData.length) {
                     renderSection(currentSectionIndex);
                 } else {
                     // Fin de la actividad
-                    document.getElementById('student-workspace').innerHTML = `<div class="col-span-2 text-center bg-white p-12 rounded-2xl shadow-lg"><h2 class="text-4xl font-bold text-green-600">¡Enhorabuena!</h2><p class="text-gray-700 mt-4 text-lg">Has completado todos los apartados de la actividad. ¡Gran trabajo!</p></div>`;
-                    updateUserProgressBar(); // Para mostrar el 100%
-                    updateProgressInFirestore(); // Asegura que el 100% se guarde
+                    document.getElementById('student-workspace').innerHTML = `
+                        <div class="col-span-2 text-center bg-white p-12 rounded-2xl shadow-lg">
+                            <h2 class="text-4xl font-bold text-green-600">¡Enhorabuena!</h2>
+                            <p class="text-gray-700 mt-4 text-lg">Has completado todos los apartados de la actividad. ¡Gran trabajo!</p>
+                            <button id="download-btn" class="mt-8 bg-green-600 text-white font-bold py-3 px-8 rounded-lg hover:bg-green-700 focus:outline-none focus:ring-4 focus:ring-green-300 transition-transform transform hover:scale-105">
+                                📥 Descargar Mis Resúmenes
+                            </button>
+                        </div>`;
+                    
+                    // NUEVO: Asignar el evento al nuevo botón
+                    document.getElementById('download-btn').addEventListener('click', downloadSummaries);
+                    
+                    updateUserProgressBar(); 
+                    updateProgressInFirestore(); 
                 }
             });
             
@@ -327,23 +367,23 @@
                 allDOMElements.geminiFeedbackArea.hidden = false;
             });
             
-            // 3. Iniciar el listener de Firestore
             listenForLeaderboardUpdates();
             
-            // 4. Cargar la primera sección
             renderSection(currentSectionIndex);
         }
 
         // --- PUNTO DE ENTRADA PRINCIPAL (AUTENTICACIÓN) ---
         try {
-            app = initializeApp(firebaseConfig);
-            auth = getAuth(app);
-            db = getFirestore(app);
-        } catch(e) { console.error("Error inicializando Firebase:", e); }
+            app = firebase.initializeApp(firebaseConfig);
+            auth = firebase.auth();
+            db = firebase.firestore();
+        } catch(e) { 
+            console.error("Error inicializando Firebase:", e); 
+            document.body.innerHTML = '<div class="text-center p-8 text-red-500">Error fatal: No se pudo inicializar la aplicación.</div>';
+        }
 
-        onAuthStateChanged(auth, async (user) => {
+        auth.onAuthStateChanged(async (user) => {
             if (user) {
-                // Usuario autenticado
                 userId = user.uid;
                 
                 // Evitar reinicializar si ya está cargado
@@ -353,18 +393,16 @@
                 initializeAppUI();
                 
             } else {
-                // No hay usuario, intentar autenticación anónima
                 try {
                      const initialToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
                      if(initialToken) {
-                        await signInWithCustomToken(auth, initialToken);
+                        await auth.signInWithCustomToken(initialToken);
                      } else {
-                        await signInAnonymously(auth);
+                        await auth.signInAnonymously();
                      }
                      // onAuthStateChanged se volverá a llamar automáticamente tras el login
                 } catch(e) { 
                     console.error("Error en autenticación:", e); 
-                    // Si falla la autenticación, mostrar un error al usuario
                     document.body.innerHTML = '<div class="text-center p-8 text-red-500">Error fatal: No se pudo conectar con el servicio de autenticación.</div>';
                 }
             }
