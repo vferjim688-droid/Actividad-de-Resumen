@@ -1,0 +1,357 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Actividad Gamificada: Pensamiento Computacional</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f4f7f9;
+        }
+        .prose-custom p, .prose-custom li { margin-bottom: 1em; }
+        .prose-custom h1, .prose-custom h2, .prose-custom h3, .prose-custom h4 { margin-bottom: 0.5em; }
+        .feedback-card, .progress-bar-inner {
+            transition: all 0.5s ease-in-out;
+        }
+        .loader {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #3498db;
+            border-radius: 50%;
+            width: 24px;
+            height: 24px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        [hidden] { display: none !important; }
+    </style>
+</head>
+<body class="text-gray-800">
+
+    <div class="container mx-auto p-4 md:p-8 max-w-7xl">
+        <header class="text-center mb-6">
+            <h1 class="text-3xl md:text-4xl font-bold text-gray-900">Actividad: El Camino del Pensamiento Computacional</h1>
+            <p class="text-gray-600 mt-2">Completa cada apartado para avanzar y ver tu progreso.</p>
+        </header>
+
+        <!-- Sección de Progreso -->
+        <div class="bg-white p-6 rounded-2xl shadow-lg border border-gray-200 mb-8">
+            <h2 class="text-xl font-bold mb-4">Tu Progreso</h2>
+            <div class="w-full bg-gray-200 rounded-full h-6 mb-4">
+                <div id="user-progress-bar" class="progress-bar-inner bg-blue-600 h-6 text-xs font-medium text-blue-100 text-center p-1 leading-none rounded-full" style="width: 0%">0%</div>
+            </div>
+
+            <h2 class="text-xl font-bold mb-2">Progreso de la Clase</h2>
+            <div id="leaderboard" class="space-y-2 max-h-40 overflow-y-auto">
+                <p class="text-gray-500">Cargando progreso de los compañeros...</p>
+            </div>
+        </div>
+
+        <main id="student-workspace" class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+            <div class="bg-white p-6 rounded-2xl shadow-lg border border-gray-200">
+                <div class="flex justify-between items-center mb-4">
+                    <h2 id="section-title" class="text-2xl font-bold text-gray-800"></h2>
+                    <button id="alternative-explanation-btn" class="flex items-center space-x-2 bg-purple-100 text-purple-700 font-semibold py-2 px-4 rounded-lg hover:bg-purple-200 transition-transform transform hover:scale-105">
+                        <span>✨ Explicación Alternativa</span>
+                    </button>
+                </div>
+                <div id="source-text-container" class="prose prose-custom text-gray-700 h-96 overflow-y-auto p-4 border rounded-lg bg-gray-50">
+                    <div id="source-text-display"></div>
+                    <div id="alternative-explanation-display" class="hidden"></div>
+                </div>
+            </div>
+
+            <div class="bg-white p-6 rounded-2xl shadow-lg border border-gray-200">
+                <h2 class="text-2xl font-bold mb-4 text-gray-800">Tu Resumen del Apartado</h2>
+                <textarea id="student-summary" class="w-full h-64 p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 transition" placeholder="Escribe aquí tu resumen..."></textarea>
+                <div class="flex flex-wrap items-center justify-between mt-4 gap-4">
+                     <div class="flex items-center gap-2">
+                        <button id="evaluate-btn" class="bg-blue-600 text-white font-bold py-3 px-6 rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-4 focus:ring-blue-300 transition-transform transform hover:scale-105">Autoevaluar</button>
+                        <button id="gemini-evaluate-btn" disabled class="flex items-center space-x-2 bg-green-600 text-white font-bold py-3 px-6 rounded-lg hover:bg-green-700 focus:outline-none focus:ring-4 focus:ring-green-300 transition-transform transform hover:scale-105 disabled:bg-gray-400 disabled:cursor-not-allowed">
+                            <span>✨ Evaluar Razonamiento</span></button>
+                    </div>
+                    <div class="text-sm text-gray-600 font-medium">Palabras: <span id="word-count">0</span></div>
+                </div>
+                
+                <div id="feedback-area" class="mt-6" hidden>
+                    <div id="feedback-content" class="grid grid-cols-1 md:grid-cols-2 gap-4"></div>
+                </div>
+                <div id="gemini-feedback-area" class="mt-6" hidden></div>
+                
+                <div id="navigation-area" class="mt-6 text-right" hidden>
+                    <button id="next-section-btn" class="bg-indigo-600 text-white font-bold py-3 px-8 rounded-lg hover:bg-indigo-700 focus:outline-none focus:ring-4 focus:ring-indigo-300 transition-transform transform hover:scale-105">Siguiente Apartado →</button>
+                </div>
+            </div>
+        </main>
+    </div>
+    
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, setDoc, collection, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // --- CONFIGURACIÓN Y DATOS ---
+        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+
+        const sectionsData = [
+            {
+                title: "1. ¿Qué es la Computación Física?",
+                content: `<p>La <strong>computación física</strong> se centra en el estudio de los entornos, tanto <strong>software</strong> como <strong>hardware</strong>, que permiten establecer comunicación entre el <strong>mundo físico</strong> y el <strong>mundo virtual</strong>.</p><p>Es la base de la programación y la robótica, conectando los ordenadores con el mundo real.</p>`,
+                keywords: ['computación física', 'software', 'hardware', 'mundo físico', 'mundo virtual']
+            },
+            {
+                title: "2. ¿Qué es la Programación?",
+                content: `<p>Un <strong>programa</strong> es un conjunto de <strong>instrucciones</strong> ordenadas de forma <strong>secuencial</strong> que permiten a un ordenador interpretar una información de entrada, procesarla y producir una información de salida.</p><p>Un <strong>algoritmo</strong> es una secuencia definida, ordenada y finita de instrucciones que permiten hallar la solución a un problema.</p>`,
+                keywords: ['programa', 'algoritmo', 'instrucciones', 'secuencial']
+            },
+            {
+                title: "3. Variables y Tipos de Datos",
+                content: `<p>Una <strong>variable</strong> es un espacio en la memoria donde se almacena un dato que puede cambiar. Una <strong>constante</strong> es un valor que no puede ser alterado.</p><p>Cada variable tiene un <strong>tipo de dato</strong> asociado, como <strong>Numérico</strong> (enteros, decimales), <strong>Texto</strong> (cadenas de caracteres) o <strong>Booleano</strong> (verdadero/falso).</p>`,
+                keywords: ['variable', 'constante', 'tipo de dato', 'numérico', 'texto', 'booleano']
+            },
+            {
+                title: "4. Operadores",
+                content: `<p>Los <strong>operadores</strong> realizan operaciones entre variables y valores.</p><ul><li><strong>Aritméticos:</strong> Suma (+), resta (-), multiplicación (*), división (/).</li><li><strong>Relacionales:</strong> Comparan valores (== igual, != distinto, > mayor que, < menor que).</li><li><strong>Lógicos:</strong> Combinan expresiones booleanas (AND, OR, NOT).</li></ul>`,
+                keywords: ['operadores', 'aritméticos', 'relacionales', 'lógicos']
+            },
+            {
+                title: "5. Estructuras Condicionales",
+                content: `<p>Permiten que un programa tome decisiones. La estructura <strong>if-else</strong> ejecuta un bloque de código si una condición es verdadera, y otro bloque si es falsa.</p><p>Se puede usar solo <strong>if</strong> para ejecutar código solo si la condición es verdadera, sin una alternativa.</p>`,
+                keywords: ['condicional', 'if', 'else', 'if-else']
+            },
+            {
+                title: "6. Estructuras Repetitivas (Bucles)",
+                content: `<p>Un <strong>bucle</strong> o ciclo permite ejecutar un bloque de código repetidamente. La <strong>iteración</strong> es cada una de las repeticiones.</p><ul><li><strong>Bucle while:</strong> Se ejecuta mientras una condición sea verdadera.</li><li><strong>Bucle for:</strong> Se ejecuta un número predeterminado de veces.</li></ul>`,
+                keywords: ['bucle', 'iteración', 'while', 'for']
+            }
+        ];
+        
+        // --- INICIALIZACIÓN DE FIREBASE ---
+        let app, auth, db, userId;
+        try {
+            app = initializeApp(firebaseConfig);
+            auth = getAuth(app);
+            db = getFirestore(app);
+        } catch(e) { console.error("Error inicializando Firebase:", e); }
+
+        onAuthStateChanged(auth, async (user) => {
+            if (user) {
+                userId = user.uid;
+            } else {
+                try {
+                     const initialToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+                     if(initialToken) {
+                        await signInWithCustomToken(auth, initialToken);
+                     } else {
+                        await signInAnonymously(auth);
+                     }
+                } catch(e) { console.error("Error en autenticación:", e); }
+            }
+            if (userId) {
+                listenForLeaderboardUpdates();
+            }
+        });
+
+        // --- ESTADO DE LA APLICACIÓN ---
+        let currentSectionIndex = 0;
+
+        // --- ELEMENTOS DEL DOM ---
+        const allDOMElements = {
+            userProgressBar: document.getElementById('user-progress-bar'),
+            leaderboard: document.getElementById('leaderboard'),
+            sectionTitle: document.getElementById('section-title'),
+            sourceTextDisplay: document.getElementById('source-text-display'),
+            alternativeExplanationDisplay: document.getElementById('alternative-explanation-display'),
+            studentSummary: document.getElementById('student-summary'),
+            wordCount: document.getElementById('word-count'),
+            evaluateBtn: document.getElementById('evaluate-btn'),
+            geminiEvaluateBtn: document.getElementById('gemini-evaluate-btn'),
+            feedbackArea: document.getElementById('feedback-area'),
+            feedbackContent: document.getElementById('feedback-content'),
+            geminiFeedbackArea: document.getElementById('gemini-feedback-area'),
+            navigationArea: document.getElementById('navigation-area'),
+            nextSectionBtn: document.getElementById('next-section-btn'),
+            alternativeExplanationBtn: document.getElementById('alternative-explanation-btn'),
+        };
+
+        // --- LÓGICA PRINCIPAL ---
+        function renderSection(index) {
+            const section = sectionsData[index];
+            allDOMElements.sectionTitle.textContent = section.title;
+            allDOMElements.sourceTextDisplay.innerHTML = section.content;
+            
+            // Resetear UI para la nueva sección
+            allDOMElements.studentSummary.value = '';
+            allDOMElements.wordCount.textContent = '0';
+            allDOMElements.feedbackArea.hidden = true;
+            allDOMElements.geminiFeedbackArea.hidden = true;
+            allDOMElements.navigationArea.hidden = true;
+            allDOMElements.geminiEvaluateBtn.disabled = true;
+            allDOMElements.evaluateBtn.disabled = false;
+            allDOMElements.alternativeExplanationDisplay.classList.add('hidden');
+            allDOMElements.sourceTextDisplay.classList.remove('hidden');
+
+            updateUserProgressBar();
+        }
+
+        function updateUserProgressBar() {
+            const percentage = Math.round((currentSectionIndex / sectionsData.length) * 100);
+            allDOMElements.userProgressBar.style.width = percentage + '%';
+            allDOMElements.userProgressBar.textContent = percentage + '%';
+        }
+        
+        async function updateProgressInFirestore() {
+            if (!userId || !db) return;
+            const percentage = Math.round(((currentSectionIndex + 1) / sectionsData.length) * 100);
+            const userProgressRef = doc(db, `artifacts/${appId}/public/data/progress`, userId);
+            try {
+                await setDoc(userProgressRef, { progress: percentage }, { merge: true });
+            } catch(e) { console.error("Error guardando progreso:", e); }
+        }
+        
+        function listenForLeaderboardUpdates() {
+            if (!db) return;
+            const progressCollectionRef = collection(db, `artifacts/${appId}/public/data/progress`);
+            onSnapshot(progressCollectionRef, (snapshot) => {
+                const progresses = [];
+                snapshot.forEach(doc => {
+                    progresses.push({ id: doc.id, ...doc.data() });
+                });
+
+                allDOMElements.leaderboard.innerHTML = '';
+                if (progresses.length === 0) {
+                     allDOMElements.leaderboard.innerHTML = '<p class="text-gray-500">Aún no hay nadie en la clasificación. ¡Sé el primero!</p>';
+                     return;
+                }
+
+                // Ordenar por progreso
+                progresses.sort((a, b) => b.progress - a.progress);
+
+                progresses.forEach(p => {
+                    const isCurrentUser = p.id === userId;
+                    const container = document.createElement('div');
+                    container.className = 'flex items-center space-x-3';
+                    
+                    const label = document.createElement('p');
+                    label.className = `w-1/4 text-sm font-medium ${isCurrentUser ? 'text-blue-600' : 'text-gray-600'}`;
+                    label.textContent = isCurrentUser ? `Tú (${p.id.substring(0,6)})` : `Compañero ${p.id.substring(0,6)}`;
+
+                    const barContainer = document.createElement('div');
+                    barContainer.className = 'w-3/4 bg-gray-200 rounded-full h-4';
+                    
+                    const bar = document.createElement('div');
+                    bar.className = `h-4 rounded-full ${isCurrentUser ? 'bg-blue-500' : 'bg-gray-400'}`;
+                    bar.style.width = `${p.progress}%`;
+                    bar.textContent = `${p.progress}%`;
+                    bar.classList.add('text-center', 'text-white', 'text-xs', 'leading-4');
+                    
+                    barContainer.appendChild(bar);
+                    container.appendChild(label);
+                    container.appendChild(barContainer);
+                    allDOMElements.leaderboard.appendChild(container);
+                });
+            });
+        }
+        
+        // --- LLAMADAS A API GEMINI ---
+        async function callGeminiAPI(prompt, button) {
+            const originalText = button.innerHTML;
+            button.disabled = true;
+            button.innerHTML = '<div class="loader"></div>';
+
+            try {
+                const API_KEY = "";
+                const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${API_KEY}`;
+                const payload = { contents: [{ parts: [{ text: prompt }] }] };
+                const response = await fetch(API_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+                if (!response.ok) throw new Error(`Error en la API: ${response.statusText}`);
+                const result = await response.json();
+                const candidate = result.candidates?.[0];
+                if (candidate?.content?.parts?.[0]?.text) {
+                    return candidate.content.parts[0].text.replace(/\n/g, '<br>');
+                } else { throw new Error("No se recibió contenido válido de la API."); }
+            } catch (error) {
+                console.error("Error llamando a la API de Gemini:", error);
+                return "Lo siento, ha ocurrido un error al contactar con la IA.";
+            } finally {
+                button.disabled = false;
+                button.innerHTML = originalText;
+            }
+        }
+        
+        // --- EVENTOS ---
+        allDOMElements.studentSummary.addEventListener('input', () => {
+            const text = allDOMElements.studentSummary.value.trim();
+            const words = text === '' ? 0 : text.split(/\s+/).length;
+            allDOMElements.wordCount.textContent = words;
+        });
+
+        allDOMElements.evaluateBtn.addEventListener('click', () => {
+            const summaryText = allDOMElements.studentSummary.value.toLowerCase();
+            const { keywords } = sectionsData[currentSectionIndex];
+            
+            // FIX: Removed unnecessary escape \ before / in the regex character class
+            let foundKeywords = keywords.filter(kw => new RegExp(`\\b${kw.replace(/[-/\\^$*+?.()|[\]{}]/g, '\\$&').replace(/\s/g, '\\s')}\\b`, 'i').test(summaryText));
+            let missingKeywords = keywords.filter(kw => !foundKeywords.includes(kw));
+
+            allDOMElements.feedbackContent.innerHTML = `
+                <div class="feedback-card bg-green-50 p-4 rounded-lg border border-green-200">
+                    <h4 class="font-bold text-green-800 mb-2">✅ Conceptos Incluidos</h4>
+                    <ul class="list-disc list-inside text-green-700">${foundKeywords.length > 0 ? foundKeywords.map(k => `<li>${k}</li>`).join('') : '<li class="italic text-gray-500">Ninguno.</li>'}</ul>
+                </div>
+                <div class="feedback-card bg-red-50 p-4 rounded-lg border border-red-200">
+                    <h4 class="font-bold text-red-800 mb-2">🔍 Conceptos a Repasar</h4>
+                     <ul class="list-disc list-inside text-red-700">${missingKeywords.length > 0 ? missingKeywords.map(k => `<li>${k}</li>`).join('') : '<li class="italic text-gray-500">¡Ninguno!</li>'}</ul>
+                </div>
+            `;
+            allDOMElements.feedbackArea.hidden = false;
+            allDOMElements.geminiEvaluateBtn.disabled = false;
+            allDOMElements.navigationArea.hidden = false;
+            allDOMElements.evaluateBtn.disabled = true;
+        });
+
+        allDOMElements.nextSectionBtn.addEventListener('click', () => {
+            updateProgressInFirestore(); // Guarda el progreso de la sección actual
+            currentSectionIndex++;
+            if (currentSectionIndex < sectionsData.length) {
+                renderSection(currentSectionIndex);
+            } else {
+                // Fin de la actividad
+                document.getElementById('student-workspace').innerHTML = `<div class="col-span-2 text-center bg-white p-12 rounded-2xl shadow-lg"><h2 class="text-4xl font-bold text-green-600">¡Enhorabuena!</h2><p class="text-gray-700 mt-4 text-lg">Has completado todos los apartados de la actividad. ¡Gran trabajo!</p></div>`;
+                updateUserProgressBar(); // Para mostrar el 100%
+                updateProgressInFirestore(); // Asegura que el 100% se guarde
+            }
+        });
+        
+        allDOMElements.alternativeExplanationBtn.addEventListener('click', async () => {
+            const sourceText = allDOMElements.sourceTextDisplay.innerText;
+            const prompt = `Eres un profesor de tecnología para alumnos de 16 años en España. Re-explica el siguiente texto de una forma más sencilla, clara y usando una analogía. TEXTO: "${sourceText}"`;
+            const explanation = await callGeminiAPI(prompt, allDOMElements.alternativeExplanationBtn);
+            allDOMElements.alternativeExplanationDisplay.innerHTML = explanation;
+            allDOMElements.alternativeExplanationDisplay.classList.remove('hidden');
+            allDOMElements.sourceTextDisplay.classList.add('hidden');
+        });
+
+        allDOMElements.geminiEvaluateBtn.addEventListener('click', async () => {
+            const { content, keywords } = sectionsData[currentSectionIndex];
+            const summaryText = allDOMElements.studentSummary.value;
+            const prompt = `Actúa como un profesor de "Creación Digital" para un alumno de 1º de Bachillerato. Evalúa en un párrafo corto si el resumen del alumno explica bien la RELACIÓN entre los conceptos. Dale feedback constructivo. TEXTO ORIGINAL: "${content.replace(/<[^>]+>/g, '')}" RESUMEN DEL ALUMNO: "${summaryText}" CONCEPTOS CLAVE: "${keywords.join(', ')}"`;
+            const evaluation = await callGeminiAPI(prompt, allDOMElements.geminiEvaluateBtn);
+            allDOMElements.geminiFeedbackArea.innerHTML = `<h3 class="text-xl font-bold mb-3 text-green-800">Valoración con IA</h3><div class="p-4 bg-green-50 border border-green-200 rounded-lg prose prose-custom text-gray-700">${evaluation}</div>`;
+            allDOMElements.geminiFeedbackArea.hidden = false;
+        });
+
+        // --- INICIO ---
+        renderSection(currentSectionIndex);
+    </script>
+</body>
+</html>
+
