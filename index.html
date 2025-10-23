@@ -31,12 +31,24 @@
             100% { transform: rotate(360deg); }
         }
         [hidden] { display: none !important; }
+
+        /* Estilos para la pantalla de login (Nick) */
+        #login-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(244, 247, 249, 0.9);
+            backdrop-filter: blur(10px);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 999;
+        }
     </style>
 
-    <!--
-    Cargamos Firebase con el método "clásico" (compat) 
-    para asegurar la compatibilidad con GitHub Pages.
-    -->
+    <!-- Cargamos Firebase con el método "clásico" (compat) -->
     <script src="https://www.gstatic.com/firebasejs/11.6.1/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/11.6.1/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore-compat.js"></script>
@@ -44,7 +56,21 @@
 </head>
 <body class="text-gray-800">
 
-    <div class="container mx-auto p-4 md:p-8 max-w-7xl">
+    <!-- PANTALLA DE LOGIN (NICKNAME) -->
+    <div id="login-overlay" hidden>
+        <div class="bg-white p-10 rounded-2xl shadow-2xl text-center max-w-sm w-full mx-4">
+            <h2 class="text-2xl font-bold mb-4 text-gray-900">Bienvenido/a</h2>
+            <p class="text-gray-600 mb-6">Escribe un "Nick" o tu IDEA para guardar tu progreso y ver el de tus compañeros.</p>
+            <input id="nick-input" type="text" placeholder="Escribe tu nick aquí..." class="w-full p-3 border border-gray-300 rounded-lg mb-4 focus:ring-2 focus:ring-blue-500">
+            <button id="login-btn" class="w-full bg-blue-600 text-white font-bold py-3 px-6 rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-4 focus:ring-blue-300 transition-transform transform hover:scale-105">
+                Comenzar Actividad
+            </button>
+            <p id="nick-error" class="text-red-500 text-sm mt-3" hidden>Por favor, escribe un nick.</p>
+        </div>
+    </div>
+
+    <!-- CONTENIDO PRINCIPAL DE LA APP (Oculto al inicio) -->
+    <div id="main-app-content" class="container mx-auto p-4 md:p-8 max-w-7xl" hidden>
         <header class="text-center mb-6">
             <h1 class="text-3xl md:text-4xl font-bold text-gray-900">Actividad: Pensamiento Computacional</h1>
             <p class="text-gray-600 mt-2">Completa cada apartado para avanzar y ver tu progreso.</p>
@@ -102,16 +128,14 @@
     </div>
     
     <script>
-        // --- PASO 4: PEGA TU CONFIGURACIÓN DE FIREBASE AQUÍ ---
+        // --- TU CONFIGURACIÓN DE FIREBASE (YA INCLUIDA) ---
         const firebaseConfig = {
-            // Pega aquí el objeto 'firebaseConfig' que copiaste del Paso 2
-            // Ejemplo:
-            // apiKey: "AIzaSy...",
-            // authDomain: "tu-proyecto.firebaseapp.com",
-            // projectId: "tu-proyecto",
-            // storageBucket: "tu-proyecto.appspot.com",
-            // messagingSenderId: "123456789",
-            // appId: "1:123456789:web:abcdef123"
+            apiKey: "AIzaSyBiaYwiczL2M-1jr6G7DAAhRTyF1SXJKRI",
+            authDomain: "resumencomputacionfisica.firebaseapp.com",
+            projectId: "resumencomputacionfisica",
+            storageBucket: "resumencomputacionfisica.firebasestorage.app",
+            messagingSenderId: "411512056489",
+            appId: "1:411512056489:web:75fd8e99317937c38297b8"
         };
         // -----------------------------------------------------
 
@@ -143,12 +167,12 @@
             },
             {
                 title: "6. Estructuras Repetitivas (Bucles)",
-                content: `<p>Un <strong>bucle</strong> o ciclo permite ejecutar un bloque de código repetidamente. La <strong>iteración</strong> es cada una de las repeticiones.</p><ul><li><strong>Bucle while:</strong> Se ejecuta mientras una condición sea verdadera.</li><li><strong>Bucle for:</strong> Se ejecuta un número predeterminado de veces.</li></ul>`,
+                content: `<p>Un <strong>bucle</strong> o ciclo permite ejecutar un bloque de código repetidamente. La <strong>iteración</strong> es cada una de las repeticiones.</p><ul><li><strong>Bucle while:</strong> Se ejecuta mientras una condición sea verdadera.</li><li><strong>Bucle for:</strong> Se ejecuta un número predeterminada de veces.</li></ul>`,
                 keywords: ['bucle', 'iteración', 'while', 'for']
             }
         ];
         
-        let app, auth, db, userId;
+        let app, auth, db, userId, userDisplayName;
         let currentSectionIndex = 0;
         let allDOMElements = {};
         let userSummaries = []; 
@@ -180,21 +204,47 @@
         async function updateProgressInFirestore() {
             if (!userId || !db) return;
             const percentage = Math.round(((currentSectionIndex + 1) / sectionsData.length) * 100);
-            // Usamos un path más simple. No necesitamos 'appId' ni carpetas anidadas.
             const userProgressRef = db.doc(`progress/${userId}`);
             try {
-                await userProgressRef.set({ progress: percentage }, { merge: true });
+                await userProgressRef.set({ 
+                    progress: percentage,
+                    name: userDisplayName // Usamos el nick guardado
+                }, { merge: true });
             } catch(e) { console.error("Error guardando progreso:", e); }
         }
-        apiKey: "AIzaSyBiaYwiczL2M-1jr6G7DAAhRTyF1SXJKRI",
-            authDomain: "resumencomputacionfisica.firebaseapp.com",
-            projectId: "resumencomputacionfisica",
-            storageBucket: "resumencomputacionfisica.firebasestorage.app",
-            messagingSenderId: "411512056489",
-            appId: "1:411512056489:web:75fd8e99317937c38297b8"
+
+        async function loadUserProgress() {
+            if (!userId || !db) return;
+            const userProgressRef = db.doc(`progress/${userId}`);
+            try {
+                const doc = await userProgressRef.get();
+                if (doc.exists) {
+                    const data = doc.data();
+                    const savedProgressPercent = data.progress || 0;
+                    userDisplayName = data.name || "Compañero"; // Cargar el nick
+                    
+                    currentSectionIndex = Math.floor((savedProgressPercent / 100) * sectionsData.length);
+                    if (currentSectionIndex >= sectionsData.length) {
+                        currentSectionIndex = sectionsData.length -1;
+                    }
+                }
+            } catch (e) {
+                console.error("Error cargando progreso del usuario:", e);
+            }
+            // Si no hay nick guardado (primera vez), mostrar el overlay
+            if (!userDisplayName) {
+                allDOMElements.loginOverlay.hidden = false;
+                allDOMElements.mainAppContent.hidden = true;
+            } else {
+                // Si ya tenemos nick, mostrar la app y cargar la sección
+                allDOMElements.loginOverlay.hidden = true;
+                allDOMElements.mainAppContent.hidden = false;
+                renderSection(currentSectionIndex);
+            }
+        }
+        
         function listenForLeaderboardUpdates() {
             if (!db) return;
-            // Usamos un path más simple.
             const progressCollectionRef = db.collection(`progress`);
             
             progressCollectionRef.onSnapshot((snapshot) => {
@@ -213,12 +263,14 @@
 
                 progresses.forEach(p => {
                     const isCurrentUser = p.id === userId;
+                    const displayName = p.name || `Compañero ${p.id.substring(0,6)}`;
+                    
                     const container = document.createElement('div');
                     container.className = 'flex items-center space-x-3';
                     
                     const label = document.createElement('p');
                     label.className = `w-1/4 text-sm font-medium ${isCurrentUser ? 'text-blue-600' : 'text-gray-600'}`;
-                    label.textContent = isCurrentUser ? `Tú (${p.id.substring(0,6)})` : `Compañero ${p.id.substring(0,6)}`;
+                    label.textContent = isCurrentUser ? `Tú (${displayName})` : displayName;
 
                     const barContainer = document.createElement('div');
                     barContainer.className = 'w-3/4 bg-gray-200 rounded-full h-4';
@@ -243,7 +295,7 @@
             button.innerHTML = '<div class="loader"></div>';
 
             try {
-                const API_KEY = ""; // La API de Gemini se gestiona automáticamente en este entorno
+                const API_KEY = ""; 
                 const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${API_KEY}`;
                 const payload = { contents: [{ parts: [{ text: prompt }] }] };
                 const response = await fetch(API_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
@@ -264,6 +316,7 @@
         
         function downloadSummaries() {
             let fileContent = "Mis Resúmenes - Pensamiento Computacional\n\n";
+            fileContent += `Alumno: ${userDisplayName}\n\n`;
 
             userSummaries.forEach(item => {
                 fileContent += `========================================\n`;
@@ -275,7 +328,7 @@
             const blob = new Blob([fileContent], { type: 'text/plain;charset=utf-8' });
             const link = document.createElement('a');
             link.href = URL.createObjectURL(blob);
-            link.download = "mis_resumenes_computacion.txt";
+            link.download = `resumenes_${userDisplayName.replace(/ /g, '_')}.txt`;
             
             document.body.appendChild(link);
             link.click();
@@ -285,6 +338,11 @@
 
         function initializeAppUI() {
             allDOMElements = {
+                loginOverlay: document.getElementById('login-overlay'),
+                loginBtn: document.getElementById('login-btn'),
+                nickInput: document.getElementById('nick-input'),
+                nickError: document.getElementById('nick-error'),
+                mainAppContent: document.getElementById('main-app-content'),
                 userProgressBar: document.getElementById('user-progress-bar'),
                 leaderboard: document.getElementById('leaderboard'),
                 sectionTitle: document.getElementById('section-title'),
@@ -302,6 +360,7 @@
                 alternativeExplanationBtn: document.getElementById('alternative-explanation-btn'),
             };
 
+            // ASIGNAR EVENTOS DE LA APP PRINCIPAL
             allDOMElements.studentSummary.addEventListener('input', () => {
                 const text = allDOMElements.studentSummary.value.trim();
                 const words = text === '' ? 0 : text.split(/\s+/).length;
@@ -374,16 +433,34 @@
                 allDOMElements.geminiFeedbackArea.innerHTML = `<h3 class="text-xl font-bold mb-3 text-green-800">Valoración con IA</h3><div class="p-4 bg-green-50 border border-green-200 rounded-lg prose prose-custom text-gray-700">${evaluation}</div>`;
                 allDOMElements.geminiFeedbackArea.hidden = false;
             });
+
+            // ASIGNAR EVENTOS DEL LOGIN (NICKNAME)
+            allDOMElements.loginBtn.addEventListener('click', async () => {
+                const nick = allDOMElements.nickInput.value.trim();
+                if (nick === "") {
+                    allDOMElements.nickError.hidden = false;
+                    return;
+                }
+                allDOMElements.nickError.hidden = true;
+                userDisplayName = nick; // Guardar el nick
+                
+                // Guardar el nick en la base de datos
+                await updateProgressInFirestore();
+                
+                // Ocultar login, mostrar app y cargar contenido
+                allDOMElements.loginOverlay.hidden = true;
+                allDOMElements.mainAppContent.hidden = false;
+                renderSection(currentSectionIndex); // Cargar la sección 0
+            });
             
+            // INICIAR LOS LISTENERS Y CARGAR PROGRESO
             listenForLeaderboardUpdates();
-            
-            renderSection(currentSectionIndex);
+            loadUserProgress(); // Esto decidirá si mostrar el login o la app
         }
+
 
         // --- PUNTO DE ENTRADA PRINCIPAL (AUTENTICACIÓN) ---
         try {
-            // Inicializamos Firebase con la configuración que pusiste arriba
-            // Verificamos si la configuración está vacía o es solo un placeholder
             if (!firebaseConfig || !firebaseConfig.apiKey || firebaseConfig.apiKey.includes("...")) {
                  throw new Error("firebaseConfig no está completa. Por favor, pega tu configuración de Firebase.");
             }
@@ -393,26 +470,25 @@
             db = firebase.firestore();
         } catch(e) { 
             console.error("Error inicializando Firebase:", e); 
-            // Si firebaseConfig está mal, mostrará este error
             document.body.innerHTML = `<div class="text-center p-8 text-red-500">Error fatal: No se pudo inicializar la aplicación. Revisa que la \`firebaseConfig\` sea correcta y no esté vacía.</div>`;
         }
 
-        // Si la inicialización fue bien, intentamos autenticarnos
         if (auth) {
             auth.onAuthStateChanged(async (user) => {
-                if (user) {
-                    userId = user.uid;
-                    if (allDOMElements.userProgressBar) return; // Evitar reinicializar
-                    initializeAppUI();
-                } else {
+                if (!user) {
+                    // No hay usuario, intentar login anónimo
                     try {
-                         // Ya no dependemos de tokens, solo login anónimo
                          await auth.signInAnonymously();
                          // onAuthStateChanged se volverá a llamar tras el login
                     } catch(e) { 
                         console.error("Error en autenticación:", e); 
-                        document.body.innerHTML = '<div class="text-center p-8 text-red-500">Error fatal: No se pudo conectar con el servicio de autenticación.</div>';
+                        document.body.innerHTML = `<div class="text-center p-8 text-red-500">Error fatal: No se pudo conectar con el servicio de autenticación.</div>`;
                     }
+                } else {
+                    // Usuario YA está logueado anónimamente
+                    userId = user.uid;
+                    if (allDOMElements.userProgressBar) return; 
+                    initializeAppUI(); // Arrancar la UI
                 }
             });
         }
@@ -420,3 +496,4 @@
     </script>
 </body>
 </html>
+
