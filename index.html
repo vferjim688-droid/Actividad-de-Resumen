@@ -53,6 +53,395 @@
     <script src="https://www.gstatic.com/firebasejs/11.6.1/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore-compat.js"></script>
 
+    <script>
+        // --- INICIO: ENVOLTURA DOMCONTENTLOADED ---
+        // Este escuchador se asegura de que el HTML esté 100% cargado
+        // antes de que se ejecute cualquier script.
+        document.addEventListener('DOMContentLoaded', () => {
+
+            // --- TU CONFIGURACIÓN DE FIREBASE (YA INCLUIDA) ---
+            const firebaseConfig = {
+                apiKey: "AIzaSyBiaYwiczL2M-1jr6G7DAAhRTyF1SXJKRI",
+                authDomain: "resumencomputacionfisica.firebaseapp.com",
+                projectId: "resumencomputacionfisica",
+                storageBucket: "resumencomputacionfisica.firebasestorage.app",
+                messagingSenderId: "411512056489",
+                appId: "1:411512056489:web:75fd8e99317937c38297b8"
+            };
+            // -----------------------------------------------------
+
+            const sectionsData = [
+                {
+                    title: "1. ¿Qué es la Computación Física?",
+                    content: `<p>La <strong>computación física</strong> se centra en el estudio de los entornos, tanto <strong>software</strong> como <strong>hardware</strong>, que permiten establecer comunicación entre el <strong>mundo físico</strong> y el <strong>mundo virtual</strong>.</p><p>Es la base de la programación y la robótica, conectando los ordenadores con el mundo real.</p>`,
+                    keywords: ['computación física', 'software', 'hardware', 'mundo físico', 'mundo virtual']
+                },
+                {
+                    title: "2. ¿Qué es la Programación?",
+                    content: `<p>Un <strong>programa</strong> es un conjunto de <strong>instrucciones</strong> ordenadas de forma <strong>secuencial</strong> que permiten a un ordenador interpretar una información de entrada, procesarla y producir una información de salida.</p><p>Un <strong>algoritmo</strong> es una secuencia definida, ordenada y finita de instrucciones que permiten hallar la solución a un problema.</p>`,
+                    keywords: ['programa', 'algoritmo', 'instrucciones', 'secuencial']
+                },
+                {
+                    title: "3. Variables y Tipos de Datos",
+                    content: `<p>Una <strong>variable</strong> es un espacio en la memoria donde se almacena un dato que puede cambiar. Una <strong>constante</strong> es un valor que no puede ser alterado.</p><p>Cada variable tiene un <strong>tipo de dato</strong> asociado, como <strong>Numérico</strong> (enteros, decimales), <strong>Texto</strong> (cadenas de caracteres) o <strong>Booleano</strong> (verdadero/falso).</p>`,
+                    keywords: ['variable', 'constante', 'tipo de dato', 'numérico', 'texto', 'booleano']
+                },
+                {
+                    title: "4. Operadores",
+                    content: `<p>Los <strong>operadores</strong> realizan operaciones entre variables y valores.</p><ul><li><strong>Aritméticos:</strong> Suma (+), resta (-), multiplicación (*), división (/).</li><li><strong>Relacionales:</strong> Comparan valores (== igual, != distinto, > mayor que, < menor que).</li><li><strong>Lógicos:</strong> Combinan expresiones booleanas (AND, OR, NOT).</li></ul>`,
+                    keywords: ['operadores', 'aritméticos', 'relacionales', 'lógicos']
+                },
+                {
+                    title: "5. Estructuras Condicionales",
+                    content: `<p>Permiten que un programa tome decisiones. La estructura <strong>if-else</strong> ejecuta un bloque de código si una condición es verdadera, y otro bloque si es falsa.</p><p>Se puede usar solo <strong>if</strong> para ejecutar código solo si la condición es verdadera, sin una alternativa.</p>`,
+                    keywords: ['condicional', 'if', 'else', 'if-else']
+                },
+                {
+                    title: "6. Estructuras Repetitivas (Bucles)",
+                    content: `<p>Un <strong>bucle</strong> o ciclo permite ejecutar un bloque de código repetidamente. La <strong>iteración</strong> es cada una de las repeticiones.</p><ul><li><strong>Bucle while:</strong> Se ejecuta mientras una condición sea verdadera.</li><li><strong>Bucle for:</strong> Se ejecuta un número predeterminada de veces.</li></ul>`,
+                    keywords: ['bucle', 'iteración', 'while', 'for']
+                }
+            ];
+            
+            let app, auth, db, userId, userDisplayName;
+            let currentSectionIndex = 0;
+            let allDOMElements = {};
+            let userSummaries = []; 
+
+            function renderSection(index) {
+                const section = sectionsData[index];
+                allDOMElements.sectionTitle.textContent = section.title;
+                allDOMElements.sourceTextDisplay.innerHTML = section.content;
+                
+                allDOMElements.studentSummary.value = '';
+                allDOMElements.wordCount.textContent = '0';
+                allDOMElements.feedbackArea.hidden = true;
+                allDOMElements.geminiFeedbackArea.hidden = true;
+                allDOMElements.navigationArea.hidden = true;
+                allDOMElements.geminiEvaluateBtn.disabled = true;
+                allDOMElements.evaluateBtn.disabled = false;
+                allDOMElements.alternativeExplanationDisplay.classList.add('hidden');
+                allDOMElements.sourceTextDisplay.classList.remove('hidden');
+
+                updateUserProgressBar();
+            }
+
+            function updateUserProgressBar() {
+                const percentage = Math.round((currentSectionIndex / sectionsData.length) * 100);
+                allDOMElements.userProgressBar.style.width = percentage + '%';
+                allDOMElements.userProgressBar.textContent = percentage + '%';
+            }
+            
+            async function updateProgressInFirestore() {
+                if (!userId || !db) return;
+                
+                // Asegurarse de que el nick está definido antes de guardar
+                if (!userDisplayName) {
+                    userDisplayName = allDOMElements.nickInput.value.trim() || "Anónimo";
+                }
+
+                const percentage = Math.round(((currentSectionIndex + 1) / sectionsData.length) * 100);
+                const userProgressRef = db.doc(`progress/${userId}`);
+                try {
+                    await userProgressRef.set({ 
+                        progress: percentage,
+                        name: userDisplayName // Usamos el nick guardado
+                    }, { merge: true });
+                } catch(e) { console.error("Error guardando progreso:", e); }
+            }
+
+            async function loadUserProgress() {
+                if (!userId || !db) return;
+                const userProgressRef = db.doc(`progress/${userId}`);
+                try {
+                    const doc = await userProgressRef.get();
+                    if (doc.exists) {
+                        const data = doc.data();
+                        const savedProgressPercent = data.progress || 0;
+                        userDisplayName = data.name; // Cargar el nick
+                        
+                        currentSectionIndex = Math.floor((savedProgressPercent / 100) * sectionsData.length);
+                        if (currentSectionIndex >= sectionsData.length) {
+                            currentSectionIndex = sectionsData.length; 
+                        }
+                    }
+                } catch (e) {
+                    console.error("Error cargando progreso del usuario:", e);
+                }
+                
+                if (currentSectionIndex >= sectionsData.length) {
+                    allDOMElements.loginOverlay.hidden = true;
+                    allDOMElements.mainAppContent.hidden = false; 
+                    document.getElementById('student-workspace').innerHTML = `
+                            <div class="col-span-2 text-center bg-white p-12 rounded-2xl shadow-lg">
+                                <h2 class="text-4xl font-bold text-green-600">¡Bienvenido de nuevo, ${userDisplayName}!</h2>
+                                <p class="text-gray-700 mt-4 text-lg">Ya has completado todos los apartados de la actividad. ¡Gran trabajo!</p>
+                                <button id="download-btn" class="mt-8 bg-green-600 text-white font-bold py-3 px-8 rounded-lg hover:bg-green-700 focus:outline-none focus:ring-4 focus:ring-green-300 transition-transform transform hover:scale-105">
+                                    📥 Descargar Mis Resúmenes de Nuevo
+                                </button>
+                            </div>`;
+                    document.getElementById('download-btn').addEventListener('click', downloadSummaries);
+                    updateUserProgressBar(); 
+                }
+                else if (!userDisplayName) {
+                    allDOMElements.loginOverlay.hidden = false;
+                    allDOMElements.mainAppContent.hidden = true;
+                } else {
+                    allDOMElements.loginOverlay.hidden = true;
+                    allDOMElements.mainAppContent.hidden = false;
+                    renderSection(currentSectionIndex);
+                }
+            }
+            
+            function listenForLeaderboardUpdates() {
+                if (!db) return;
+                const progressCollectionRef = db.collection(`progress`);
+                
+                progressCollectionRef.onSnapshot((snapshot) => {
+                    const progresses = [];
+                    snapshot.forEach(doc => {
+                        progresses.push({ id: doc.id, ...doc.data() });
+                    });
+
+                    allDOMElements.leaderboard.innerHTML = '';
+                    if (progresses.length === 0) {
+                         allDOMElements.leaderboard.innerHTML = '<p class="text-gray-500">Aún no hay nadie en la clasificación. ¡Sé el primero!</p>';
+                         return;
+                    }
+
+                    progresses.sort((a, b) => b.progress - a.progress);
+
+                    progresses.forEach(p => {
+                        const isCurrentUser = p.id === userId;
+                        const displayName = p.name || `Compañero ${p.id.substring(0,6)}`;
+                        
+                        const container = document.createElement('div');
+                        container.className = 'flex items-center space-x-3';
+                        
+                        const label = document.createElement('p');
+                        label.className = `w-1/4 text-sm font-medium ${isCurrentUser ? 'text-blue-600' : 'text-gray-600'}`;
+                        label.textContent = isCurrentUser ? `Tú (${displayName})` : displayName;
+
+                        const barContainer = document.createElement('div');
+                        barContainer.className = 'w-3/4 bg-gray-200 rounded-full h-4';
+                        
+                        const bar = document.createElement('div');
+                        bar.className = `h-4 rounded-full ${isCurrentUser ? 'bg-blue-500' : 'bg-gray-400'}`;
+                        bar.style.width = `${p.progress}%`;
+                        bar.textContent = `${p.progress}%`;
+                        bar.classList.add('text-center', 'text-white', 'text-xs', 'leading-4');
+                        
+                        barContainer.appendChild(bar);
+                        container.appendChild(label);
+                        container.appendChild(barContainer);
+                        allDOMElements.leaderboard.appendChild(container);
+                    });
+                });
+            }
+            
+            async function callGeminiAPI(prompt, button) {
+                const originalText = button.innerHTML;
+                button.disabled = true;
+                button.innerHTML = '<div class="loader"></div>';
+
+                try {
+                    const API_KEY = ""; 
+                    const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${API_KEY}`;
+                    const payload = { contents: [{ parts: [{ text: prompt }] }] };
+                    const response = await fetch(API_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+                    if (!response.ok) throw new Error(`Error en la API: ${response.statusText}`);
+                    const result = await response.json();
+                    const candidate = result.candidates?.[0];
+                    if (candidate?.content?.parts?.[0]?.text) {
+                        return candidate.content.parts[0].text.replace(/\n/g, '<br>');
+                    } else { throw new Error("No se recibió contenido válido de la API."); }
+                } catch (error) {
+                    console.error("Error llamando a la API de Gemini:", error);
+                    return "Lo siento, ha ocurrido un error al contactar con la IA.";
+                } finally {
+                    button.disabled = false;
+                    button.innerHTML = originalText;
+                }
+            }
+            
+            function downloadSummaries() {
+                let fileContent = "Mis Resúmenes - Pensamiento Computacional\n\n";
+                fileContent += `Alumno: ${userDisplayName}\n\n`;
+
+                userSummaries.forEach(item => {
+                    fileContent += `========================================\n`;
+                    fileContent += `${item.title}\n`;
+                    fileContent += `========================================\n`;
+                    fileContent += `${item.summary}\n\n`;
+                });
+
+                const blob = new Blob([fileContent], { type: 'text/plain;charset=utf-8' });
+                const link = document.createElement('a');
+                link.href = URL.createObjectURL(blob);
+                link.download = `resumenes_${userDisplayName.replace(/ /g, '_')}.txt`;
+                
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+                URL.revokeObjectURL(link.href);
+            }
+
+            function initializeAppUI() {
+                allDOMElements = {
+                    loginOverlay: document.getElementById('login-overlay'),
+                    loginBtn: document.getElementById('login-btn'),
+                    nickInput: document.getElementById('nick-input'),
+                    nickError: document.getElementById('nick-error'),
+                    mainAppContent: document.getElementById('main-app-content'),
+                    userProgressBar: document.getElementById('user-progress-bar'),
+                    leaderboard: document.getElementById('leaderboard'),
+                    sectionTitle: document.getElementById('section-title'),
+                    sourceTextDisplay: document.getElementById('source-text-display'),
+                    alternativeExplanationDisplay: document.getElementById('alternative-explanation-display'),
+                    studentSummary: document.getElementById('student-summary'),
+                    wordCount: document.getElementById('word-count'),
+                    evaluateBtn: document.getElementById('evaluate-btn'),
+                    geminiEvaluateBtn: document.getElementById('gemini-evaluate-btn'),
+                    feedbackArea: document.getElementById('feedback-area'),
+                    feedbackContent: document.getElementById('feedback-content'),
+                    geminiFeedbackArea: document.getElementById('gemini-feedback-area'),
+                    navigationArea: document.getElementById('navigation-area'),
+                    nextSectionBtn: document.getElementById('next-section-btn'),
+                    alternativeExplanationBtn: document.getElementById('alternative-explanation-btn'),
+                };
+
+                allDOMElements.studentSummary.addEventListener('input', () => {
+                    const text = allDOMElements.studentSummary.value.trim();
+                    const words = text === '' ? 0 : text.split(/\s+/).length;
+                    allDOMElements.wordCount.textContent = words;
+                });
+
+                allDOMElements.evaluateBtn.addEventListener('click', () => {
+                    const summaryText = allDOMElements.studentSummary.value.toLowerCase();
+                    const { keywords } = sectionsData[currentSectionIndex];
+                    
+                    let foundKeywords = keywords.filter(kw => new RegExp(`\\b${kw.replace(/[-/\\^$*+?.()|[\]{}]/g, '\\$&').replace(/\s/g, '\\s')}\\b`, 'i').test(summaryText));
+                    let missingKeywords = keywords.filter(kw => !foundKeywords.includes(kw));
+
+                    allDOMElements.feedbackContent.innerHTML = `
+                        <div class="feedback-card bg-green-50 p-4 rounded-lg border border-green-200">
+                            <h4 class="font-bold text-green-800 mb-2">✅ Conceptos Incluidos</h4>
+                            <ul class="list-disc list-inside text-green-700">${foundKeywords.length > 0 ? foundKeywords.map(k => `<li>${k}</li>`).join('') : '<li class="italic text-gray-500">Ninguno.</li>'}</ul>
+                        </div>
+                        <div class="feedback-card bg-red-50 p-4 rounded-lg border border-red-200">
+                            <h4 class="font-bold text-red-800 mb-2">🔍 Conceptos a Repasar</h4>
+                             <ul class="list-disc list-inside text-red-700">${missingKeywords.length > 0 ? missingKeywords.map(k => `<li>${k}</li>`).join('') : '<li class="italic text-gray-500">¡Ninguno!</li>'}</ul>
+                        </div>
+                    `;
+                    allDOMElements.feedbackArea.hidden = false;
+                    allDOMElements.geminiEvaluateBtn.disabled = false;
+                    allDOMElements.navigationArea.hidden = false;
+                    allDOMElements.evaluateBtn.disabled = true;
+                });
+
+                allDOMElements.nextSectionBtn.addEventListener('click', () => {
+                    const currentSummary = allDOMElements.studentSummary.value;
+                    const currentTitle = sectionsData[currentSectionIndex].title;
+                    userSummaries.push({ title: currentTitle, summary: currentSummary });
+
+                    updateProgressInFirestore(); 
+                    currentSectionIndex++;
+                    if (currentSectionIndex < sectionsData.length) {
+                        renderSection(currentSectionIndex);
+                    } else {
+                        document.getElementById('student-workspace').innerHTML = `
+                            <div class="col-span-2 text-center bg-white p-12 rounded-2xl shadow-lg">
+                                <h2 class="text-4xl font-bold text-green-600">¡Enhorabuena, ${userDisplayName}!</h2>
+                                <p class="text-gray-700 mt-4 text-lg">Has completado todos los apartados de la actividad. ¡Gran trabajo!</p>
+                                <button id="download-btn" class="mt-8 bg-green-600 text-white font-bold py-3 px-8 rounded-lg hover:bg-green-700 focus:outline-none focus:ring-4 focus:ring-green-300 transition-transform transform hover:scale-105">
+                                    📥 Descargar Mis Resúmenes
+                                </button>
+                            </div>`;
+                        
+                        document.getElementById('download-btn').addEventListener('click', downloadSummaries);
+                        
+                        updateUserProgressBar(); 
+                        updateProgressInFirestore(); 
+                    }
+                });
+                
+                allDOMElements.alternativeExplanationBtn.addEventListener('click', async () => {
+                    const sourceText = allDOMElements.sourceTextDisplay.innerText;
+                    const prompt = `Eres un profesor de tecnología para alumnos de 16 años en España. Re-explica el siguiente texto de una forma más sencilla, clara y usando una analogía. TEXTO: "${sourceText}"`;
+                    const explanation = await callGeminiAPI(prompt, allDOMElements.alternativeExplanationBtn);
+                    allDOMElements.alternativeExplanationDisplay.innerHTML = explanation;
+                    allDOMElements.alternativeExplanationDisplay.classList.remove('hidden');
+                    allDOMElements.sourceTextDisplay.classList.add('hidden');
+                });
+
+                allDOMElements.geminiEvaluateBtn.addEventListener('click', async () => {
+                    const { content, keywords } = sectionsData[currentSectionIndex];
+                    const summaryText = allDOMElements.studentSummary.value;
+                    const prompt = `Actúa como un profesor de "Creación Digital" para un alumno de 1º de Bachillerato. Evalúa en un párrafo corto si el resumen del alumno explica bien la RELACIÓN entre los conceptos. Dale feedback constructive. TEXTO ORIGINAL: "${content.replace(/<[^>]+>/g, '')}" RESUMEN DEL ALUMNO: "${summaryText}" CONCEPTO CLAVE: "${keywords.join(', ')}"`;
+                    const evaluation = await callGeminiAPI(prompt, allDOMElements.geminiEvaluateBtn);
+                    allDOMElements.geminiFeedbackArea.innerHTML = `<h3 class="text-xl font-bold mb-3 text-green-800">Valoración con IA</h3><div class="p-4 bg-green-50 border border-green-200 rounded-lg prose prose-custom text-gray-700">${evaluation}</div>`;
+                    allDOMElements.geminiFeedbackArea.hidden = false;
+                });
+
+                allDOMElements.loginBtn.addEventListener('click', async () => {
+                    const nick = allDOMElements.nickInput.value.trim();
+                    if (nick === "") {
+                        allDOMElements.nickError.hidden = false;
+                        return;
+                    }
+                    allDOMElements.nickError.hidden = true;
+                    userDisplayName = nick;
+                    
+                    await updateProgressInFirestore();
+                    
+                    allDOMElements.loginOverlay.hidden = true;
+                    allDOMElements.mainAppContent.hidden = false;
+                    renderSection(currentSectionIndex); 
+                });
+                
+                listenForLeaderboardUpdates();
+                loadUserProgress();
+            }
+
+
+            // --- PUNTO DE ENTRADA PRINCIPAL (AUTENTICACIÓN) ---
+            try {
+                if (!firebaseConfig || !firebaseConfig.apiKey || firebaseConfig.apiKey.includes("...")) {
+                     if(firebaseConfig.apiKey === "AIzaSyBiaYwiczL2M-1jr6G7DAAhRTyF1SXJKRI") {
+                        // Es tu config real, todo bien
+                     } else {
+                        throw new Error("firebaseConfig no está completa. Por favor, pega tu configuración de Firebase.");
+                     }
+                }
+                
+                app = firebase.initializeApp(firebaseConfig);
+                auth = firebase.auth();
+                db = firebase.firestore();
+            } catch(e) { 
+                console.error("Error inicializando Firebase:", e); 
+                document.body.innerHTML = `<div class="text-center p-8 text-red-500">Error fatal: No se pudo inicializar la aplicación. Revisa que la \`firebaseConfig\` sea correcta y no esté vacía.</div>`;
+            }
+
+            if (auth) {
+                auth.onAuthStateChanged(async (user) => {
+                    if (!user) {
+                        try {
+                             await auth.signInAnonymously();
+                        } catch(e) { 
+                            console.error("Error en autenticación:", e); 
+                            document.body.innerHTML = `<div class="text-center p-8 text-red-500">Error fatal: No se pudo conectar con el servicio de autenticación.</div>`;
+                        }
+                    } else {
+                        userId = user.uid;
+                        if (allDOMElements.userProgressBar) return; 
+                        initializeAppUI();
+                    }
+                });
+            }
+
+        }); // --- FIN: ENVOLTURA DOMCONTENTLOADED ---
+
+    </script>
 </head>
 <body class="text-gray-800">
 
@@ -127,373 +516,6 @@
         </main>
     </div>
     
-    <script>
-        // --- TU CONFIGURACIÓN DE FIREBASE (YA INCLUIDA) ---
-        const firebaseConfig = {
-            apiKey: "AIzaSyBiaYwiczL2M-1jr6G7DAAhRTyF1SXJKRI",
-            authDomain: "resumencomputacionfisica.firebaseapp.com",
-            projectId: "resumencomputacionfisica",
-            storageBucket: "resumencomputacionfisica.firebasestorage.app",
-            messagingSenderId: "411512056489",
-            appId: "1:411512056489:web:75fd8e99317937c38297b8"
-        };
-        // -----------------------------------------------------
-
-        const sectionsData = [
-            {
-                title: "1. ¿Qué es la Computación Física?",
-                content: `<p>La <strong>computación física</strong> se centra en el estudio de los entornos, tanto <strong>software</strong> como <strong>hardware</strong>, que permiten establecer comunicación entre el <strong>mundo físico</strong> y el <strong>mundo virtual</strong>.</p><p>Es la base de la programación y la robótica, conectando los ordenadores con el mundo real.</p>`,
-                keywords: ['computación física', 'software', 'hardware', 'mundo físico', 'mundo virtual']
-            },
-            {
-                title: "2. ¿Qué es la Programación?",
-                content: `<p>Un <strong>programa</strong> es un conjunto de <strong>instrucciones</strong> ordenadas de forma <strong>secuencial</strong> que permiten a un ordenador interpretar una información de entrada, procesarla y producir una información de salida.</p><p>Un <strong>algoritmo</strong> es una secuencia definida, ordenada y finita de instrucciones que permiten hallar la solución a un problema.</p>`,
-                keywords: ['programa', 'algoritmo', 'instrucciones', 'secuencial']
-            },
-            {
-                title: "3. Variables y Tipos de Datos",
-                content: `<p>Una <strong>variable</strong> es un espacio en la memoria donde se almacena un dato que puede cambiar. Una <strong>constante</strong> es un valor que no puede ser alterado.</p><p>Cada variable tiene un <strong>tipo de dato</strong> asociado, como <strong>Numérico</strong> (enteros, decimales), <strong>Texto</strong> (cadenas de caracteres) o <strong>Booleano</strong> (verdadero/falso).</p>`,
-                keywords: ['variable', 'constante', 'tipo de dato', 'numérico', 'texto', 'booleano']
-            },
-            {
-                title: "4. Operadores",
-                content: `<p>Los <strong>operadores</strong> realizan operaciones entre variables y valores.</p><ul><li><strong>Aritméticos:</strong> Suma (+), resta (-), multiplicación (*), división (/).</li><li><strong>Relacionales:</strong> Comparan valores (== igual, != distinto, > mayor que, < menor que).</li><li><strong>Lógicos:</strong> Combinan expresiones booleanas (AND, OR, NOT).</li></ul>`,
-                keywords: ['operadores', 'aritméticos', 'relacionales', 'lógicos']
-            },
-            {
-                title: "5. Estructuras Condicionales",
-                content: `<p>Permiten que un programa tome decisiones. La estructura <strong>if-else</strong> ejecuta un bloque de código si una condición es verdadera, y otro bloque si es falsa.</p><p>Se puede usar solo <strong>if</strong> para ejecutar código solo si la condición es verdadera, sin una alternativa.</p>`,
-                keywords: ['condicional', 'if', 'else', 'if-else']
-            },
-            {
-                title: "6. Estructuras Repetitivas (Bucles)",
-                content: `<p>Un <strong>bucle</strong> o ciclo permite ejecutar un bloque de código repetidamente. La <strong>iteración</strong> es cada una de las repeticiones.</p><ul><li><strong>Bucle while:</strong> Se ejecuta mientras una condición sea verdadera.</li><li><strong>Bucle for:</strong> Se ejecuta un número predeterminada de veces.</li></ul>`,
-                keywords: ['bucle', 'iteración', 'while', 'for']
-            }
-        ];
-        
-        let app, auth, db, userId, userDisplayName;
-        let currentSectionIndex = 0;
-        let allDOMElements = {};
-        let userSummaries = []; 
-
-        function renderSection(index) {
-            const section = sectionsData[index];
-            allDOMElements.sectionTitle.textContent = section.title;
-            allDOMElements.sourceTextDisplay.innerHTML = section.content;
-            
-            allDOMElements.studentSummary.value = '';
-            allDOMElements.wordCount.textContent = '0';
-            allDOMElements.feedbackArea.hidden = true;
-            allDOMElements.geminiFeedbackArea.hidden = true;
-            allDOMElements.navigationArea.hidden = true;
-            allDOMElements.geminiEvaluateBtn.disabled = true;
-            allDOMElements.evaluateBtn.disabled = false;
-            allDOMElements.alternativeExplanationDisplay.classList.add('hidden');
-            allDOMElements.sourceTextDisplay.classList.remove('hidden');
-
-            updateUserProgressBar();
-        }
-
-        function updateUserProgressBar() {
-            const percentage = Math.round((currentSectionIndex / sectionsData.length) * 100);
-            allDOMElements.userProgressBar.style.width = percentage + '%';
-            allDOMElements.userProgressBar.textContent = percentage + '%';
-        }
-        
-        async function updateProgressInFirestore() {
-            if (!userId || !db) return;
-            const percentage = Math.round(((currentSectionIndex + 1) / sectionsData.length) * 100);
-            const userProgressRef = db.doc(`progress/${userId}`);
-            try {
-                await userProgressRef.set({ 
-                    progress: percentage,
-                    name: userDisplayName // Usamos el nick guardado
-                }, { merge: true });
-            } catch(e) { console.error("Error guardando progreso:", e); }
-        }
-
-        async function loadUserProgress() {
-            if (!userId || !db) return;
-            const userProgressRef = db.doc(`progress/${userId}`);
-            try {
-                const doc = await userProgressRef.get();
-                if (doc.exists) {
-                    const data = doc.data();
-                    const savedProgressPercent = data.progress || 0;
-                    userDisplayName = data.name || "Compañero"; // Cargar el nick
-                    
-                    currentSectionIndex = Math.floor((savedProgressPercent / 100) * sectionsData.length);
-                    if (currentSectionIndex >= sectionsData.length) {
-                        currentSectionIndex = sectionsData.length -1;
-                    }
-                }
-            } catch (e) {
-                console.error("Error cargando progreso del usuario:", e);
-            }
-            // Si no hay nick guardado (primera vez), mostrar el overlay
-            if (!userDisplayName) {
-                allDOMElements.loginOverlay.hidden = false;
-                allDOMElements.mainAppContent.hidden = true;
-            } else {
-                // Si ya tenemos nick, mostrar la app y cargar la sección
-                allDOMElements.loginOverlay.hidden = true;
-                allDOMElements.mainAppContent.hidden = false;
-                renderSection(currentSectionIndex);
-            }
-        }
-        
-        function listenForLeaderboardUpdates() {
-            if (!db) return;
-            const progressCollectionRef = db.collection(`progress`);
-            
-            progressCollectionRef.onSnapshot((snapshot) => {
-                const progresses = [];
-                snapshot.forEach(doc => {
-                    progresses.push({ id: doc.id, ...doc.data() });
-                });
-
-                allDOMElements.leaderboard.innerHTML = '';
-                if (progresses.length === 0) {
-                     allDOMElements.leaderboard.innerHTML = '<p class="text-gray-500">Aún no hay nadie en la clasificación. ¡Sé el primero!</p>';
-                     return;
-                }
-
-                progresses.sort((a, b) => b.progress - a.progress);
-
-                progresses.forEach(p => {
-                    const isCurrentUser = p.id === userId;
-                    const displayName = p.name || `Compañero ${p.id.substring(0,6)}`;
-                    
-                    const container = document.createElement('div');
-                    container.className = 'flex items-center space-x-3';
-                    
-                    const label = document.createElement('p');
-                    label.className = `w-1/4 text-sm font-medium ${isCurrentUser ? 'text-blue-600' : 'text-gray-600'}`;
-                    label.textContent = isCurrentUser ? `Tú (${displayName})` : displayName;
-
-                    const barContainer = document.createElement('div');
-                    barContainer.className = 'w-3/4 bg-gray-200 rounded-full h-4';
-                    
-                    const bar = document.createElement('div');
-                    bar.className = `h-4 rounded-full ${isCurrentUser ? 'bg-blue-500' : 'bg-gray-400'}`;
-                    bar.style.width = `${p.progress}%`;
-                    bar.textContent = `${p.progress}%`;
-                    bar.classList.add('text-center', 'text-white', 'text-xs', 'leading-4');
-                    
-                    barContainer.appendChild(bar);
-                    container.appendChild(label);
-                    container.appendChild(barContainer);
-                    allDOMElements.leaderboard.appendChild(container);
-                });
-            });
-        }
-        
-        async function callGeminiAPI(prompt, button) {
-            const originalText = button.innerHTML;
-            button.disabled = true;
-            button.innerHTML = '<div class="loader"></div>';
-
-            try {
-                const API_KEY = ""; 
-                const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${API_KEY}`;
-                const payload = { contents: [{ parts: [{ text: prompt }] }] };
-                const response = await fetch(API_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
-                if (!response.ok) throw new Error(`Error en la API: ${response.statusText}`);
-                const result = await response.json();
-                const candidate = result.candidates?.[0];
-                if (candidate?.content?.parts?.[0]?.text) {
-                    return candidate.content.parts[0].text.replace(/\n/g, '<br>');
-                } else { throw new Error("No se recibió contenido válido de la API."); }
-            } catch (error) {
-                console.error("Error llamando a la API de Gemini:", error);
-                return "Lo siento, ha ocurrido un error al contactar con la IA.";
-            } finally {
-                button.disabled = false;
-                button.innerHTML = originalText;
-            }
-        }
-        
-        function downloadSummaries() {
-            let fileContent = "Mis Resúmenes - Pensamiento Computacional\n\n";
-            fileContent += `Alumno: ${userDisplayName}\n\n`;
-
-            userSummaries.forEach(item => {
-                fileContent += `========================================\n`;
-                fileContent += `${item.title}\n`;
-                fileContent += `========================================\n`;
-                fileContent += `${item.summary}\n\n`;
-            });
-
-            const blob = new Blob([fileContent], { type: 'text/plain;charset=utf-8' });
-            const link = document.createElement('a');
-            link.href = URL.createObjectURL(blob);
-            link.download = `resumenes_${userDisplayName.replace(/ /g, '_')}.txt`;
-            
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-            URL.revokeObjectURL(link.href);
-        }
-
-        function initializeAppUI() {
-            allDOMElements = {
-                loginOverlay: document.getElementById('login-overlay'),
-                loginBtn: document.getElementById('login-btn'),
-                nickInput: document.getElementById('nick-input'),
-                nickError: document.getElementById('nick-error'),
-                mainAppContent: document.getElementById('main-app-content'),
-                userProgressBar: document.getElementById('user-progress-bar'),
-                leaderboard: document.getElementById('leaderboard'),
-                sectionTitle: document.getElementById('section-title'),
-                sourceTextDisplay: document.getElementById('source-text-display'),
-                alternativeExplanationDisplay: document.getElementById('alternative-explanation-display'),
-                studentSummary: document.getElementById('student-summary'),
-                wordCount: document.getElementById('word-count'),
-                evaluateBtn: document.getElementById('evaluate-btn'),
-                geminiEvaluateBtn: document.getElementById('gemini-evaluate-btn'),
-                feedbackArea: document.getElementById('feedback-area'),
-                feedbackContent: document.getElementById('feedback-content'),
-                geminiFeedbackArea: document.getElementById('gemini-feedback-area'),
-                navigationArea: document.getElementById('navigation-area'),
-                nextSectionBtn: document.getElementById('next-section-btn'),
-                alternativeExplanationBtn: document.getElementById('alternative-explanation-btn'),
-            };
-
-            // ASIGNAR EVENTOS DE LA APP PRINCIPAL
-            allDOMElements.studentSummary.addEventListener('input', () => {
-                const text = allDOMElements.studentSummary.value.trim();
-                const words = text === '' ? 0 : text.split(/\s+/).length;
-                allDOMElements.wordCount.textContent = words;
-            });
-
-            allDOMElements.evaluateBtn.addEventListener('click', () => {
-                const summaryText = allDOMElements.studentSummary.value.toLowerCase();
-                const { keywords } = sectionsData[currentSectionIndex];
-                
-                let foundKeywords = keywords.filter(kw => new RegExp(`\\b${kw.replace(/[-/\\^$*+?.()|[\]{}]/g, '\\$&').replace(/\s/g, '\\s')}\\b`, 'i').test(summaryText));
-                let missingKeywords = keywords.filter(kw => !foundKeywords.includes(kw));
-
-                allDOMElements.feedbackContent.innerHTML = `
-                    <div class="feedback-card bg-green-50 p-4 rounded-lg border border-green-200">
-                        <h4 class="font-bold text-green-800 mb-2">✅ Conceptos Incluidos</h4>
-                        <ul class="list-disc list-inside text-green-700">${foundKeywords.length > 0 ? foundKeywords.map(k => `<li>${k}</li>`).join('') : '<li class="italic text-gray-500">Ninguno.</li>'}</ul>
-                    </div>
-                    <div class="feedback-card bg-red-50 p-4 rounded-lg border border-red-200">
-                        <h4 class="font-bold text-red-800 mb-2">🔍 Conceptos a Repasar</h4>
-                         <ul class="list-disc list-inside text-red-700">${missingKeywords.length > 0 ? missingKeywords.map(k => `<li>${k}</li>`).join('') : '<li class="italic text-gray-500">¡Ninguno!</li>'}</ul>
-                    </div>
-                `;
-                allDOMElements.feedbackArea.hidden = false;
-                allDOMElements.geminiEvaluateBtn.disabled = false;
-                allDOMElements.navigationArea.hidden = false;
-                allDOMElements.evaluateBtn.disabled = true;
-            });
-
-            allDOMElements.nextSectionBtn.addEventListener('click', () => {
-                const currentSummary = allDOMElements.studentSummary.value;
-                const currentTitle = sectionsData[currentSectionIndex].title;
-                userSummaries.push({ title: currentTitle, summary: currentSummary });
-
-                updateProgressInFirestore(); 
-                currentSectionIndex++;
-                if (currentSectionIndex < sectionsData.length) {
-                    renderSection(currentSectionIndex);
-                } else {
-                    document.getElementById('student-workspace').innerHTML = `
-                        <div class="col-span-2 text-center bg-white p-12 rounded-2xl shadow-lg">
-                            <h2 class="text-4xl font-bold text-green-600">¡Enhorabuena!</h2>
-                            <p class="text-gray-700 mt-4 text-lg">Has completado todos los apartados de la actividad. ¡Gran trabajo!</p>
-                            <button id="download-btn" class="mt-8 bg-green-600 text-white font-bold py-3 px-8 rounded-lg hover:bg-green-700 focus:outline-none focus:ring-4 focus:ring-green-300 transition-transform transform hover:scale-105">
-                                📥 Descargar Mis Resúmenes
-                            </button>
-                        </div>`;
-                    
-                    document.getElementById('download-btn').addEventListener('click', downloadSummaries);
-                    
-                    updateUserProgressBar(); 
-                    updateProgressInFirestore(); 
-                }
-            });
-            
-            allDOMElements.alternativeExplanationBtn.addEventListener('click', async () => {
-                const sourceText = allDOMElements.sourceTextDisplay.innerText;
-                const prompt = `Eres un profesor de tecnología para alumnos de 16 años en España. Re-explica el siguiente texto de una forma más sencilla, clara y usando una analogía. TEXTO: "${sourceText}"`;
-                const explanation = await callGeminiAPI(prompt, allDOMElements.alternativeExplanationBtn);
-                allDOMElements.alternativeExplanationDisplay.innerHTML = explanation;
-                allDOMElements.alternativeExplanationDisplay.classList.remove('hidden');
-                allDOMElements.sourceTextDisplay.classList.add('hidden');
-            });
-
-            allDOMElements.geminiEvaluateBtn.addEventListener('click', async () => {
-                const { content, keywords } = sectionsData[currentSectionIndex];
-                const summaryText = allDOMElements.studentSummary.value;
-                const prompt = `Actúa como un profesor de "Creación Digital" para un alumno de 1º de Bachillerato. Evalúa en un párrafo corto si el resumen del alumno explica bien la RELACIÓN entre los conceptos. Dale feedback constructive. TEXTO ORIGINAL: "${content.replace(/<[^>]+>/g, '')}" RESUMEN DEL ALUMNO: "${summaryText}" CONCEPTOS CLAVE: "${keywords.join(', ')}"`;
-                const evaluation = await callGeminiAPI(prompt, allDOMElements.geminiEvaluateBtn);
-                allDOMElements.geminiFeedbackArea.innerHTML = `<h3 class="text-xl font-bold mb-3 text-green-800">Valoración con IA</h3><div class="p-4 bg-green-50 border border-green-200 rounded-lg prose prose-custom text-gray-700">${evaluation}</div>`;
-                allDOMElements.geminiFeedbackArea.hidden = false;
-            });
-
-            // ASIGNAR EVENTOS DEL LOGIN (NICKNAME)
-            allDOMElements.loginBtn.addEventListener('click', async () => {
-                const nick = allDOMElements.nickInput.value.trim();
-                if (nick === "") {
-                    allDOMElements.nickError.hidden = false;
-                    return;
-                }
-                allDOMElements.nickError.hidden = true;
-                userDisplayName = nick; // Guardar el nick
-                
-                // Guardar el nick en la base de datos
-                await updateProgressInFirestore();
-                
-                // Ocultar login, mostrar app y cargar contenido
-                allDOMElements.loginOverlay.hidden = true;
-                allDOMElements.mainAppContent.hidden = false;
-                renderSection(currentSectionIndex); // Cargar la sección 0
-            });
-            
-            // INICIAR LOS LISTENERS Y CARGAR PROGRESO
-            listenForLeaderboardUpdates();
-            loadUserProgress(); // Esto decidirá si mostrar el login o la app
-        }
-
-
-        // --- PUNTO DE ENTRADA PRINCIPAL (AUTENTICACIÓN) ---
-        try {
-            if (!firebaseConfig || !firebaseConfig.apiKey || firebaseConfig.apiKey.includes("...")) {
-                 throw new Error("firebaseConfig no está completa. Por favor, pega tu configuración de Firebase.");
-            }
-            
-            app = firebase.initializeApp(firebaseConfig);
-            auth = firebase.auth();
-            db = firebase.firestore();
-        } catch(e) { 
-            console.error("Error inicializando Firebase:", e); 
-            document.body.innerHTML = `<div class="text-center p-8 text-red-500">Error fatal: No se pudo inicializar la aplicación. Revisa que la \`firebaseConfig\` sea correcta y no esté vacía.</div>`;
-        }
-
-        if (auth) {
-            auth.onAuthStateChanged(async (user) => {
-                if (!user) {
-                    // No hay usuario, intentar login anónimo
-                    try {
-                         await auth.signInAnonymously();
-                         // onAuthStateChanged se volverá a llamar tras el login
-                    } catch(e) { 
-                        console.error("Error en autenticación:", e); 
-                        document.body.innerHTML = `<div class="text-center p-8 text-red-500">Error fatal: No se pudo conectar con el servicio de autenticación.</div>`;
-                    }
-                } else {
-                    // Usuario YA está logueado anónimamente
-                    userId = user.uid;
-                    if (allDOMElements.userProgressBar) return; 
-                    initializeAppUI(); // Arrancar la UI
-                }
-            });
-        }
-
-    </script>
 </body>
 </html>
 
