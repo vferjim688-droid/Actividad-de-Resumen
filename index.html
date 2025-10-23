@@ -102,9 +102,18 @@
     </div>
     
     <script>
-        // --- CONFIGURACIÓN Y DATOS ---
-        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
-        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        // --- PASO 4: PEGA TU CONFIGURACIÓN DE FIREBASE AQUÍ ---
+        const firebaseConfig = {
+            // Pega aquí el objeto 'firebaseConfig' que copiaste del Paso 2
+            // Ejemplo:
+            // apiKey: "AIzaSy...",
+            // authDomain: "tu-proyecto.firebaseapp.com",
+            // projectId: "tu-proyecto",
+            // storageBucket: "tu-proyecto.appspot.com",
+            // messagingSenderId: "123456789",
+            // appId: "1:123456789:web:abcdef123"
+        };
+        // -----------------------------------------------------
 
         const sectionsData = [
             {
@@ -139,15 +148,11 @@
             }
         ];
         
-        // --- INICIALIZACIÓN DE FIREBASE ---
         let app, auth, db, userId;
-        
-        // --- ESTADO DE LA APLICACIÓN ---
         let currentSectionIndex = 0;
-        let allDOMElements = {}; // Se llenará cuando la UI esté lista
-        let userSummaries = []; // NUEVO: Almacenará los resúmenes del usuario
+        let allDOMElements = {};
+        let userSummaries = []; 
 
-        // --- LÓGICA PRINCIPAL ---
         function renderSection(index) {
             const section = sectionsData[index];
             allDOMElements.sectionTitle.textContent = section.title;
@@ -175,15 +180,22 @@
         async function updateProgressInFirestore() {
             if (!userId || !db) return;
             const percentage = Math.round(((currentSectionIndex + 1) / sectionsData.length) * 100);
-            const userProgressRef = db.doc(`artifacts/${appId}/public/data/progress/${userId}`);
+            // Usamos un path más simple. No necesitamos 'appId' ni carpetas anidadas.
+            const userProgressRef = db.doc(`progress/${userId}`);
             try {
                 await userProgressRef.set({ progress: percentage }, { merge: true });
             } catch(e) { console.error("Error guardando progreso:", e); }
         }
-        
+        apiKey: "AIzaSyBiaYwiczL2M-1jr6G7DAAhRTyF1SXJKRI",
+            authDomain: "resumencomputacionfisica.firebaseapp.com",
+            projectId: "resumencomputacionfisica",
+            storageBucket: "resumencomputacionfisica.firebasestorage.app",
+            messagingSenderId: "411512056489",
+            appId: "1:411512056489:web:75fd8e99317937c38297b8"
         function listenForLeaderboardUpdates() {
             if (!db) return;
-            const progressCollectionRef = db.collection(`artifacts/${appId}/public/data/progress`);
+            // Usamos un path más simple.
+            const progressCollectionRef = db.collection(`progress`);
             
             progressCollectionRef.onSnapshot((snapshot) => {
                 const progresses = [];
@@ -231,7 +243,7 @@
             button.innerHTML = '<div class="loader"></div>';
 
             try {
-                const API_KEY = "";
+                const API_KEY = ""; // La API de Gemini se gestiona automáticamente en este entorno
                 const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${API_KEY}`;
                 const payload = { contents: [{ parts: [{ text: prompt }] }] };
                 const response = await fetch(API_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
@@ -250,7 +262,6 @@
             }
         }
         
-        // NUEVO: Función para descargar los resúmenes
         function downloadSummaries() {
             let fileContent = "Mis Resúmenes - Pensamiento Computacional\n\n";
 
@@ -321,7 +332,6 @@
             });
 
             allDOMElements.nextSectionBtn.addEventListener('click', () => {
-                // NUEVO: Guardar el resumen antes de avanzar
                 const currentSummary = allDOMElements.studentSummary.value;
                 const currentTitle = sectionsData[currentSectionIndex].title;
                 userSummaries.push({ title: currentTitle, summary: currentSummary });
@@ -331,7 +341,6 @@
                 if (currentSectionIndex < sectionsData.length) {
                     renderSection(currentSectionIndex);
                 } else {
-                    // Fin de la actividad
                     document.getElementById('student-workspace').innerHTML = `
                         <div class="col-span-2 text-center bg-white p-12 rounded-2xl shadow-lg">
                             <h2 class="text-4xl font-bold text-green-600">¡Enhorabuena!</h2>
@@ -341,7 +350,6 @@
                             </button>
                         </div>`;
                     
-                    // NUEVO: Asignar el evento al nuevo botón
                     document.getElementById('download-btn').addEventListener('click', downloadSummaries);
                     
                     updateUserProgressBar(); 
@@ -361,7 +369,7 @@
             allDOMElements.geminiEvaluateBtn.addEventListener('click', async () => {
                 const { content, keywords } = sectionsData[currentSectionIndex];
                 const summaryText = allDOMElements.studentSummary.value;
-                const prompt = `Actúa como un profesor de "Creación Digital" para un alumno de 1º de Bachillerato. Evalúa en un párrafo corto si el resumen del alumno explica bien la RELACIÓN entre los conceptos. Dale feedback constructivo. TEXTO ORIGINAL: "${content.replace(/<[^>]+>/g, '')}" RESUMEN DEL ALUMNO: "${summaryText}" CONCEPTOS CLAVE: "${keywords.join(', ')}"`;
+                const prompt = `Actúa como un profesor de "Creación Digital" para un alumno de 1º de Bachillerato. Evalúa en un párrafo corto si el resumen del alumno explica bien la RELACIÓN entre los conceptos. Dale feedback constructive. TEXTO ORIGINAL: "${content.replace(/<[^>]+>/g, '')}" RESUMEN DEL ALUMNO: "${summaryText}" CONCEPTOS CLAVE: "${keywords.join(', ')}"`;
                 const evaluation = await callGeminiAPI(prompt, allDOMElements.geminiEvaluateBtn);
                 allDOMElements.geminiFeedbackArea.innerHTML = `<h3 class="text-xl font-bold mb-3 text-green-800">Valoración con IA</h3><div class="p-4 bg-green-50 border border-green-200 rounded-lg prose prose-custom text-gray-700">${evaluation}</div>`;
                 allDOMElements.geminiFeedbackArea.hidden = false;
@@ -374,41 +382,41 @@
 
         // --- PUNTO DE ENTRADA PRINCIPAL (AUTENTICACIÓN) ---
         try {
+            // Inicializamos Firebase con la configuración que pusiste arriba
+            // Verificamos si la configuración está vacía o es solo un placeholder
+            if (!firebaseConfig || !firebaseConfig.apiKey || firebaseConfig.apiKey.includes("...")) {
+                 throw new Error("firebaseConfig no está completa. Por favor, pega tu configuración de Firebase.");
+            }
+            
             app = firebase.initializeApp(firebaseConfig);
             auth = firebase.auth();
             db = firebase.firestore();
         } catch(e) { 
             console.error("Error inicializando Firebase:", e); 
-            document.body.innerHTML = '<div class="text-center p-8 text-red-500">Error fatal: No se pudo inicializar la aplicación.</div>';
+            // Si firebaseConfig está mal, mostrará este error
+            document.body.innerHTML = `<div class="text-center p-8 text-red-500">Error fatal: No se pudo inicializar la aplicación. Revisa que la \`firebaseConfig\` sea correcta y no esté vacía.</div>`;
         }
 
-        auth.onAuthStateChanged(async (user) => {
-            if (user) {
-                userId = user.uid;
-                
-                // Evitar reinicializar si ya está cargado
-                if (allDOMElements.userProgressBar) return; 
-
-                // ¡AHORA es seguro arrancar la UI!
-                initializeAppUI();
-                
-            } else {
-                try {
-                     const initialToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
-                     if(initialToken) {
-                        await auth.signInWithCustomToken(initialToken);
-                     } else {
-                        await auth.signInAnonymously();
-                     }
-                     // onAuthStateChanged se volverá a llamar automáticamente tras el login
-                } catch(e) { 
-                    console.error("Error en autenticación:", e); 
-                    document.body.innerHTML = '<div class="text-center p-8 text-red-500">Error fatal: No se pudo conectar con el servicio de autenticación.</div>';
+        // Si la inicialización fue bien, intentamos autenticarnos
+        if (auth) {
+            auth.onAuthStateChanged(async (user) => {
+                if (user) {
+                    userId = user.uid;
+                    if (allDOMElements.userProgressBar) return; // Evitar reinicializar
+                    initializeAppUI();
+                } else {
+                    try {
+                         // Ya no dependemos de tokens, solo login anónimo
+                         await auth.signInAnonymously();
+                         // onAuthStateChanged se volverá a llamar tras el login
+                    } catch(e) { 
+                        console.error("Error en autenticación:", e); 
+                        document.body.innerHTML = '<div class="text-center p-8 text-red-500">Error fatal: No se pudo conectar con el servicio de autenticación.</div>';
+                    }
                 }
-            }
-        });
+            });
+        }
 
     </script>
 </body>
 </html>
-
