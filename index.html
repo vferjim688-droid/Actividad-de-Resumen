@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Actividad Gamificada: Pensamiento Computacional</title>
+    <title>Actividad: Pensamiento Computacional</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -37,7 +37,7 @@
 
     <div class="container mx-auto p-4 md:p-8 max-w-7xl">
         <header class="text-center mb-6">
-            <h1 class="text-3xl md:text-4xl font-bold text-gray-900">Actividad: El Camino del Pensamiento Computacional</h1>
+            <h1 class="text-3xl md:text-4xl font-bold text-gray-900">Actividad: Pensamiento Computacional</h1>
             <p class="text-gray-600 mt-2">Completa cada apartado para avanzar y ver tu progreso.</p>
         </header>
 
@@ -164,23 +164,8 @@
         let currentSectionIndex = 0;
 
         // --- ELEMENTOS DEL DOM ---
-        const allDOMElements = {
-            userProgressBar: document.getElementById('user-progress-bar'),
-            leaderboard: document.getElementById('leaderboard'),
-            sectionTitle: document.getElementById('section-title'),
-            sourceTextDisplay: document.getElementById('source-text-display'),
-            alternativeExplanationDisplay: document.getElementById('alternative-explanation-display'),
-            studentSummary: document.getElementById('student-summary'),
-            wordCount: document.getElementById('word-count'),
-            evaluateBtn: document.getElementById('evaluate-btn'),
-            geminiEvaluateBtn: document.getElementById('gemini-evaluate-btn'),
-            feedbackArea: document.getElementById('feedback-area'),
-            feedbackContent: document.getElementById('feedback-content'),
-            geminiFeedbackArea: document.getElementById('gemini-feedback-area'),
-            navigationArea: document.getElementById('navigation-area'),
-            nextSectionBtn: document.getElementById('next-section-btn'),
-            alternativeExplanationBtn: document.getElementById('alternative-explanation-btn'),
-        };
+        // Se declaran aquí, pero se inicializan cuando el DOM esté listo
+        let allDOMElements = {};
 
         // --- LÓGICA PRINCIPAL ---
         function renderSection(index) {
@@ -287,70 +272,94 @@
             }
         }
         
-        // --- EVENTOS ---
-        allDOMElements.studentSummary.addEventListener('input', () => {
-            const text = allDOMElements.studentSummary.value.trim();
-            const words = text === '' ? 0 : text.split(/\s+/).length;
-            allDOMElements.wordCount.textContent = words;
-        });
-
-        allDOMElements.evaluateBtn.addEventListener('click', () => {
-            const summaryText = allDOMElements.studentSummary.value.toLowerCase();
-            const { keywords } = sectionsData[currentSectionIndex];
+        // --- INICIO DE LA APLICACIÓN ---
+        // Esperamos a que el DOM esté completamente cargado antes de buscar elementos y añadir listeners
+        document.addEventListener('DOMContentLoaded', () => {
             
-            // FIX: Removed unnecessary escape \ before / in the regex character class
-            let foundKeywords = keywords.filter(kw => new RegExp(`\\b${kw.replace(/[-/\\^$*+?.()|[\]{}]/g, '\\$&').replace(/\s/g, '\\s')}\\b`, 'i').test(summaryText));
-            let missingKeywords = keywords.filter(kw => !foundKeywords.includes(kw));
+            // Ahora es seguro asignar los elementos del DOM
+            allDOMElements = {
+                userProgressBar: document.getElementById('user-progress-bar'),
+                leaderboard: document.getElementById('leaderboard'),
+                sectionTitle: document.getElementById('section-title'),
+                sourceTextDisplay: document.getElementById('source-text-display'),
+                alternativeExplanationDisplay: document.getElementById('alternative-explanation-display'),
+                studentSummary: document.getElementById('student-summary'),
+                wordCount: document.getElementById('word-count'),
+                evaluateBtn: document.getElementById('evaluate-btn'),
+                geminiEvaluateBtn: document.getElementById('gemini-evaluate-btn'),
+                feedbackArea: document.getElementById('feedback-area'),
+                feedbackContent: document.getElementById('feedback-content'),
+                geminiFeedbackArea: document.getElementById('gemini-feedback-area'),
+                navigationArea: document.getElementById('navigation-area'),
+                nextSectionBtn: document.getElementById('next-section-btn'),
+                alternativeExplanationBtn: document.getElementById('alternative-explanation-btn'),
+            };
 
-            allDOMElements.feedbackContent.innerHTML = `
-                <div class="feedback-card bg-green-50 p-4 rounded-lg border border-green-200">
-                    <h4 class="font-bold text-green-800 mb-2">✅ Conceptos Incluidos</h4>
-                    <ul class="list-disc list-inside text-green-700">${foundKeywords.length > 0 ? foundKeywords.map(k => `<li>${k}</li>`).join('') : '<li class="italic text-gray-500">Ninguno.</li>'}</ul>
-                </div>
-                <div class="feedback-card bg-red-50 p-4 rounded-lg border border-red-200">
-                    <h4 class="font-bold text-red-800 mb-2">🔍 Conceptos a Repasar</h4>
-                     <ul class="list-disc list-inside text-red-700">${missingKeywords.length > 0 ? missingKeywords.map(k => `<li>${k}</li>`).join('') : '<li class="italic text-gray-500">¡Ninguno!</li>'}</ul>
-                </div>
-            `;
-            allDOMElements.feedbackArea.hidden = false;
-            allDOMElements.geminiEvaluateBtn.disabled = false;
-            allDOMElements.navigationArea.hidden = false;
-            allDOMElements.evaluateBtn.disabled = true;
-        });
+            // --- EVENTOS ---
+            allDOMElements.studentSummary.addEventListener('input', () => {
+                const text = allDOMElements.studentSummary.value.trim();
+                const words = text === '' ? 0 : text.split(/\s+/).length;
+                allDOMElements.wordCount.textContent = words;
+            });
 
-        allDOMElements.nextSectionBtn.addEventListener('click', () => {
-            updateProgressInFirestore(); // Guarda el progreso de la sección actual
-            currentSectionIndex++;
-            if (currentSectionIndex < sectionsData.length) {
-                renderSection(currentSectionIndex);
-            } else {
-                // Fin de la actividad
-                document.getElementById('student-workspace').innerHTML = `<div class="col-span-2 text-center bg-white p-12 rounded-2xl shadow-lg"><h2 class="text-4xl font-bold text-green-600">¡Enhorabuena!</h2><p class="text-gray-700 mt-4 text-lg">Has completado todos los apartados de la actividad. ¡Gran trabajo!</p></div>`;
-                updateUserProgressBar(); // Para mostrar el 100%
-                updateProgressInFirestore(); // Asegura que el 100% se guarde
-            }
-        });
-        
-        allDOMElements.alternativeExplanationBtn.addEventListener('click', async () => {
-            const sourceText = allDOMElements.sourceTextDisplay.innerText;
-            const prompt = `Eres un profesor de tecnología para alumnos de 16 años en España. Re-explica el siguiente texto de una forma más sencilla, clara y usando una analogía. TEXTO: "${sourceText}"`;
-            const explanation = await callGeminiAPI(prompt, allDOMElements.alternativeExplanationBtn);
-            allDOMElements.alternativeExplanationDisplay.innerHTML = explanation;
-            allDOMElements.alternativeExplanationDisplay.classList.remove('hidden');
-            allDOMElements.sourceTextDisplay.classList.add('hidden');
-        });
+            allDOMElements.evaluateBtn.addEventListener('click', () => {
+                const summaryText = allDOMElements.studentSummary.value.toLowerCase();
+                const { keywords } = sectionsData[currentSectionIndex];
+                
+                let foundKeywords = keywords.filter(kw => new RegExp(`\\b${kw.replace(/[-/\\^$*+?.()|[\]{}]/g, '\\$&').replace(/\s/g, '\\s')}\\b`, 'i').test(summaryText));
+                let missingKeywords = keywords.filter(kw => !foundKeywords.includes(kw));
 
-        allDOMElements.geminiEvaluateBtn.addEventListener('click', async () => {
-            const { content, keywords } = sectionsData[currentSectionIndex];
-            const summaryText = allDOMElements.studentSummary.value;
-            const prompt = `Actúa como un profesor de "Creación Digital" para un alumno de 1º de Bachillerato. Evalúa en un párrafo corto si el resumen del alumno explica bien la RELACIÓN entre los conceptos. Dale feedback constructivo. TEXTO ORIGINAL: "${content.replace(/<[^>]+>/g, '')}" RESUMEN DEL ALUMNO: "${summaryText}" CONCEPTOS CLAVE: "${keywords.join(', ')}"`;
-            const evaluation = await callGeminiAPI(prompt, allDOMElements.geminiEvaluateBtn);
-            allDOMElements.geminiFeedbackArea.innerHTML = `<h3 class="text-xl font-bold mb-3 text-green-800">Valoración con IA</h3><div class="p-4 bg-green-50 border border-green-200 rounded-lg prose prose-custom text-gray-700">${evaluation}</div>`;
-            allDOMElements.geminiFeedbackArea.hidden = false;
-        });
+                allDOMElements.feedbackContent.innerHTML = `
+                    <div class="feedback-card bg-green-50 p-4 rounded-lg border border-green-200">
+                        <h4 class="font-bold text-green-800 mb-2">✅ Conceptos Incluidos</h4>
+                        <ul class="list-disc list-inside text-green-700">${foundKeywords.length > 0 ? foundKeywords.map(k => `<li>${k}</li>`).join('') : '<li class="italic text-gray-500">Ninguno.</li>'}</ul>
+                    </div>
+                    <div class="feedback-card bg-red-50 p-4 rounded-lg border border-red-200">
+                        <h4 class="font-bold text-red-800 mb-2">🔍 Conceptos a Repasar</h4>
+                         <ul class="list-disc list-inside text-red-700">${missingKeywords.length > 0 ? missingKeywords.map(k => `<li>${k}</li>`).join('') : '<li class="italic text-gray-500">¡Ninguno!</li>'}</ul>
+                    </div>
+                `;
+                allDOMElements.feedbackArea.hidden = false;
+                allDOMElements.geminiEvaluateBtn.disabled = false;
+                allDOMElements.navigationArea.hidden = false;
+                allDOMElements.evaluateBtn.disabled = true;
+            });
 
-        // --- INICIO ---
-        renderSection(currentSectionIndex);
+            allDOMElements.nextSectionBtn.addEventListener('click', () => {
+                updateProgressInFirestore(); // Guarda el progreso de la sección actual
+                currentSectionIndex++;
+                if (currentSectionIndex < sectionsData.length) {
+                    renderSection(currentSectionIndex);
+                } else {
+                    // Fin de la actividad
+                    document.getElementById('student-workspace').innerHTML = `<div class="col-span-2 text-center bg-white p-12 rounded-2xl shadow-lg"><h2 class="text-4xl font-bold text-green-600">¡Enhorabuena!</h2><p class="text-gray-700 mt-4 text-lg">Has completado todos los apartados de la actividad. ¡Gran trabajo!</p></div>`;
+                    updateUserProgressBar(); // Para mostrar el 100%
+                    updateProgressInFirestore(); // Asegura que el 100% se guarde
+                }
+            });
+            
+            allDOMElements.alternativeExplanationBtn.addEventListener('click', async () => {
+                const sourceText = allDOMElements.sourceTextDisplay.innerText;
+                const prompt = `Eres un profesor de tecnología para alumnos de 16 años en España. Re-explica el siguiente texto de una forma más sencilla, clara y usando una analogía. TEXTO: "${sourceText}"`;
+                const explanation = await callGeminiAPI(prompt, allDOMElements.alternativeExplanationBtn);
+                allDOMElements.alternativeExplanationDisplay.innerHTML = explanation;
+                allDOMElements.alternativeExplanationDisplay.classList.remove('hidden');
+                allDOMElements.sourceTextDisplay.classList.add('hidden');
+            });
+
+            allDOMElements.geminiEvaluateBtn.addEventListener('click', async () => {
+                const { content, keywords } = sectionsData[currentSectionIndex];
+                const summaryText = allDOMElements.studentSummary.value;
+                const prompt = `Actúa como un profesor de "Creación Digital" para un alumno de 1º de Bachillerato. Evalúa en un párrafo corto si el resumen del alumno explica bien la RELACIÓN entre los conceptos. Dale feedback constructivo. TEXTO ORIGINAL: "${content.replace(/<[^>]+>/g, '')}" RESUMEN DEL ALUMNO: "${summaryText}" CONCEPTOS CLAVE: "${keywords.join(', ')}"`;
+                const evaluation = await callGeminiAPI(prompt, allDOMElements.geminiEvaluateBtn);
+                allDOMElements.geminiFeedbackArea.innerHTML = `<h3 class="text-xl font-bold mb-3 text-green-800">Valoración con IA</h3><div class="p-4 bg-green-50 border border-green-200 rounded-lg prose prose-custom text-gray-700">${evaluation}</div>`;
+                allDOMElements.geminiFeedbackArea.hidden = false;
+            });
+
+            // --- INICIO ---
+            // Ahora esta llamada es segura porque el DOM está listo
+            renderSection(currentSectionIndex);
+        });
     </script>
 </body>
 </html>
