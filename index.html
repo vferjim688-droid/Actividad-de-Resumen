@@ -193,6 +193,7 @@
 
     <!-- ========= SCRIPT PRINCIPAL (MOVIDO AL FINAL) ========= -->
     <script>
+        // CORREGIDO: Script movido al final del body
         console.log("[Script Start] Executing script at end of body.");
 
         // --- CONFIG FIREBASE ---
@@ -210,7 +211,7 @@
         let currentPDFText = ""; let currentActivityId = null; let currentActivityOwnerId = null;
         let allDOMElements = {};
         let firestoreListenerUnsubscribe = null; let isAppInitialized = false;
-        const GEMINI_API_KEY_STORAGE_KEY = 'geminiApiKey_v2';
+        const GEMINI_API_KEY_STORAGE_KEY = 'geminiApiKey_v2'; // Clave única para localStorage
 
         // --- PASO 1: ASIGNAR ELEMENTOS DOM ---
         function assignDOMElements() {
@@ -223,7 +224,7 @@
                      if (!element) { console.error(`--> [DOM Error] ID '${id}' NOT FOUND!`); missing.push(id); }
                      allDOMElements[id] = element;
                  });
-                 const crucial = ['loginOverlay', 'modeSelector', 'mainAppContent', 'apiKeySection', 'loginBtn', 'nickInput'];
+                 const crucial = ['loginOverlay', 'modeSelector', 'mainAppContent', 'apiKeySection', 'loginBtn', 'nickInput', 'apiKeyInput', 'saveApiKeyBtn', 'showApiKeyBtn', 'backFromApiKeyBtn'];
                  const missingCrucial = crucial.filter(k => !allDOMElements[k]);
                  if (missingCrucial.length > 0) { throw new Error(`Faltan HTML esenciales: ${missingCrucial.join(', ')}.`); }
                  if (missing.length > 0) { console.warn(`Elementos no cruciales faltantes: ${missing.join(', ')}.`); }
