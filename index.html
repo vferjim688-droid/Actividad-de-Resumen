@@ -15,7 +15,7 @@
         // --- [PASO 1: CONFIGURACIÓN APLICADA] ---
         // He copiado aquí la configuración de tu app "Alumnado".
         const firebaseConfig = {
-            apiKey: "AIzaSyCrZRRrK2pV8-qgbv4SkutKE2LSQFPJE-Q",
+            apiKey: "AIzaSyBiaYwiczL2M-1jr6G7DAAhRTyF1SXJKRI",
             authDomain: "aulaia-393c0.firebaseapp.com",
             projectId: "aulaia-393c0",
             storageBucket: "aulaia-393c0.appspot.com",
@@ -26,6 +26,8 @@
 
         // Estas variables ya no dependen del entorno
         const initialAuthToken = null; // No disponible en GitHub Pages
+        // Derivamos el appId del projectId, igual que hace tu app Alumnado
+        const appId = firebaseConfig.projectId || 'aula-ia-default';
         
         let db, auth, userId;
         let aulaData = null;
@@ -34,8 +36,12 @@
         let alumnoId, aulaId;
 
         // --- Modelos de API (Gemini) ---
-        // DEJAR VACÍO.
-        const API_KEY = ""; 
+        // ¡ADVERTENCIA DE SEGURIDAD!
+        // NUNCA pongas tu clave de API de Gemini aquí en un archivo público.
+        // Google la desactivará y tu cuenta podría ser suspendida.
+        // La llamada a la API debe hacerse desde un backend seguro (como Cloud Functions).
+        // Si pones una clave aquí, el aviso de GitHub volverá a saltar.
+        const API_KEY = ""; // DEJAR VACÍO.
         const GEMINI_API_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${API_KEY}`;
         
         // --- Elementos de la UI ---
@@ -123,18 +129,20 @@
          */
         async function cargarDatosAula(id) {
             try {
-                // RUTA SIMPLIFICADA: Eliminamos /artifacts/${appId}/
-                const docPath = `/public/data/aulas/${id}`;
+                // RUTA CORREGIDA: Ahora coincide con la ruta de la app "Alumnado"
+                const docPath = `artifacts/${appId}/public/data/classrooms/${id}`;
                 const docRef = doc(db, docPath);
                 const docSnap = await getDoc(docRef);
 
                 if (docSnap.exists()) {
                     aulaData = docSnap.data();
-                    pdfTitulo.textContent = aulaData.pdfTitulo || "Actividad de Resumen";
-                    pdfTexto.textContent = aulaData.pdfTextoCompleto || "No hay texto de PDF disponible.";
                     
-                    // 3. Generar apartados con IA
-                    await generarApartados(aulaData.pdfTextoCompleto);
+                    // CAMPOS CORREGIDOS: "name" y "sourceText" (en lugar de pdfTitulo y pdfTextoCompleto)
+                    pdfTitulo.textContent = aulaData.name || "Actividad de Resumen";
+                    pdfTexto.textContent = aulaData.sourceText || "No hay texto de PDF disponible.";
+                    
+                    // 3. Generar apartados con IA (usando sourceText)
+                    await generarApartados(aulaData.sourceText);
 
                 } else {
                     mostrarError("Aula no encontrada", `No se encontraron datos para el aula con ID: ${id}. Asegúrate que la app "Alumnado" guarde en la ruta: ${docPath}`);
@@ -312,8 +320,8 @@
          */
         async function guardarProgresoEnFirestore(index, tituloResumen, textoResumen, evaluacion) {
             try {
-                // RUTA SIMPLIFICADA
-                const docPath = `/public/data/aulas/${aulaId}/alumnos/${alumnoId}/progresos/${index}`;
+                // RUTA CORREGIDA: La guardamos dentro de la colección del aula y alumno correspondiente
+                const docPath = `artifacts/${appId}/public/data/classrooms/${aulaId}/alumnos/${alumnoId}/progresos/${index}`;
                 await setDoc(doc(db, docPath), {
                     apartadoTitulo: apartadosGenerados[index].titulo,
                     resumenTitulo: tituloResumen,
