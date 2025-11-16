@@ -9,15 +9,24 @@
     <script type="module">
         // Importaciones de Firebase
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, doc, getDoc, collection, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
-        // --- Configuración de Firebase (OBLIGATORIO) ---
-        // Estas variables se proporcionan en el entorno de ejecución
-        const firebaseConfig = JSON.parse(typeof __firebase_config !== 'undefined' ? __firebase_config : '{}');
-        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+        // --- [PASO 1: CONFIGURACIÓN APLICADA] ---
+        // He copiado aquí la configuración de tu app "Alumnado".
+        const firebaseConfig = {
+            apiKey: "AIzaSyCrZRRrK2pV8-qgbv4SkutKE2LSQFPJE-Q",
+            authDomain: "aulaia-393c0.firebaseapp.com",
+            projectId: "aulaia-393c0",
+            storageBucket: "aulaia-393c0.appspot.com",
+            messagingSenderId: "485029010497",
+            appId: "1:485029010497:web:1ebf3b0a80781d30307ac0"
+        };
+        // ---------------------------------------------
 
+        // Estas variables ya no dependen del entorno
+        const initialAuthToken = null; // No disponible en GitHub Pages
+        
         let db, auth, userId;
         let aulaData = null;
         let apartadosGenerados = [];
@@ -25,10 +34,8 @@
         let alumnoId, aulaId;
 
         // --- Modelos de API (Gemini) ---
-        // Debes reemplazar 'TU_API_KEY' por tu clave real de API de Google AI Studio
-        // OJO: NUNCA expongas una API key en el lado del cliente en producción.
-        // Esto es solo para prototipado. En producción, esto debe hacerse en un backend seguro.
-        const API_KEY = ""; // DEJAR VACÍO.
+        // DEJAR VACÍO.
+        const API_KEY = ""; 
         const GEMINI_API_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${API_KEY}`;
         
         // --- Elementos de la UI ---
@@ -56,8 +63,10 @@
         // --- Lógica de la Aplicación ---
 
         window.onload = async () => {
-            if (Object.keys(firebaseConfig).length === 0) {
-                mostrarError("Error de Configuración", "La configuración de Firebase no se ha cargado correctamente.");
+            // Esta es la comprobación que fallaba.
+            // Ahora, solo comprueba si has rellenado el projectId.
+            if (!firebaseConfig.projectId || firebaseConfig.projectId === "TU_PROJECT_ID") {
+                mostrarError("Error de Configuración", "La configuración de Firebase (firebaseConfig) no se ha rellenado en el archivo index.html.");
                 return;
             }
 
@@ -73,16 +82,13 @@
                         // El usuario está autenticado, ahora iniciamos la carga de datos
                         await iniciarCargaDatos();
                     } else {
-                        // Si no hay usuario, intentar autenticación anónima o con token
+                        // Si no hay usuario, intentar autenticación anónima
                         try {
-                            if (initialAuthToken) {
-                                await signInWithCustomToken(auth, initialAuthToken);
-                            } else {
-                                await signInAnonymously(auth);
-                            }
+                            // En GitHub Pages, esto es lo que se ejecutará
+                            await signInAnonymously(auth);
                             // onAuthStateChanged se disparará de nuevo
                         } catch (authError) {
-                            console.error("Error de autenticación:", authError);
+                            console.error("Error de autenticación anónima:", authError);
                             mostrarError("Error de Autenticación", "No se pudo verificar tu identidad.");
                         }
                     }
@@ -117,7 +123,8 @@
          */
         async function cargarDatosAula(id) {
             try {
-                const docPath = `/artifacts/${appId}/public/data/aulas/${id}`;
+                // RUTA SIMPLIFICADA: Eliminamos /artifacts/${appId}/
+                const docPath = `/public/data/aulas/${id}`;
                 const docRef = doc(db, docPath);
                 const docSnap = await getDoc(docRef);
 
@@ -130,7 +137,7 @@
                     await generarApartados(aulaData.pdfTextoCompleto);
 
                 } else {
-                    mostrarError("Aula no encontrada", `No se encontraron datos para el aula con ID: ${id}`);
+                    mostrarError("Aula no encontrada", `No se encontraron datos para el aula con ID: ${id}. Asegúrate que la app "Alumnado" guarde en la ruta: ${docPath}`);
                 }
             } catch (e) {
                 console.error("Error al cargar datos del aula:", e);
@@ -305,8 +312,8 @@
          */
         async function guardarProgresoEnFirestore(index, tituloResumen, textoResumen, evaluacion) {
             try {
-                // Ruta: /artifacts/{appId}/public/data/aulas/{aulaId}/alumnos/{alumnoId}/progresos/{apartadoIndex}
-                const docPath = `/artifacts/${appId}/public/data/aulas/${aulaId}/alumnos/${alumnoId}/progresos/${index}`;
+                // RUTA SIMPLIFICADA
+                const docPath = `/public/data/aulas/${aulaId}/alumnos/${alumnoId}/progresos/${index}`;
                 await setDoc(doc(db, docPath), {
                     apartadoTitulo: apartadosGenerados[index].titulo,
                     resumenTitulo: tituloResumen,
@@ -386,8 +393,6 @@
         }
 
         function mostrarErrorTemporal(titulo, mensaje) {
-            // Esta función podría mostrar un modal temporal
-            // Por ahora, usamos un alert simple (aunque no ideal)
             alert(`${titulo}: ${mensaje}`);
         }
 
@@ -411,9 +416,8 @@
         body {
             font-family: 'Inter', sans-serif;
         }
-        /* Estilo para el contenedor del PDF */
         #pdf-texto-container {
-            max-height: 300px; /* Altura máxima inicial */
+            max-height: 300px;
             transition: max-height 0.3s ease-in-out;
         }
     </style>
@@ -433,7 +437,7 @@
     <!-- 2. Estado de Error -->
     <div id="error-container" class="hidden bg-white p-8 rounded-lg shadow-xl max-w-md w-full text-center">
         <h2 class="text-2xl font-bold text-red-600 mb-4">Ha ocurrido un error</h2>
-        <p id="error-message" class="text-gray-700"></p>
+        <p id="error-message" classG="text-gray-700"></p>
     </div>
 
     <!-- 3. Contenedor Principal de la Aplicación -->
@@ -462,6 +466,7 @@
                 <div class="mt-4">
                     <h3 id="apartado-titulo" class="text-lg font-semibold text-gray-800 mb-2">Cargando apartado...</h3>
                     <p class="text-sm text-gray-500">Lee el texto del PDF (o el contenido específico del apartado si la IA lo ha dividido) y crea tu resumen a continuación.</p>
+
                 </div>
             </div>
 
