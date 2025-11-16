@@ -3,521 +3,504 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Actividad: Pensamiento Computacional</title>
+    <title>Actividad de Resumen</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <script type="module">
+        // Importaciones de Firebase
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, getDoc, collection, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // --- Configuración de Firebase (OBLIGATORIO) ---
+        // Estas variables se proporcionan en el entorno de ejecución
+        const firebaseConfig = JSON.parse(typeof __firebase_config !== 'undefined' ? __firebase_config : '{}');
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+
+        let db, auth, userId;
+        let aulaData = null;
+        let apartadosGenerados = [];
+        let apartadoActualIndex = 0;
+        let alumnoId, aulaId;
+
+        // --- Modelos de API (Gemini) ---
+        // Debes reemplazar 'TU_API_KEY' por tu clave real de API de Google AI Studio
+        // OJO: NUNCA expongas una API key en el lado del cliente en producción.
+        // Esto es solo para prototipado. En producción, esto debe hacerse en un backend seguro.
+        const API_KEY = ""; // DEJAR VACÍO.
+        const GEMINI_API_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${API_KEY}`;
+        
+        // --- Elementos de la UI ---
+        const $ = (id) => document.getElementById(id);
+        const loadingSpinner = $('loading-spinner');
+        const appContainer = $('app-container');
+        const errorContainer = $('error-container');
+        const errorMessage = $('error-message');
+        
+        const pdfTitulo = $('pdf-titulo');
+        const pdfTextoContainer = $('pdf-texto-container');
+        const togglePdfButton = $('toggle-pdf-button');
+        const pdfTexto = $('pdf-texto');
+        
+        const apartadoTitulo = $('apartado-titulo');
+        const resumenTituloUsuario = $('resumen-titulo-usuario');
+        const resumenTextoUsuario = $('resumen-texto-usuario');
+        const evaluarResumenBtn = $('evaluar-resumen-btn');
+        const iaFeedbackContainer = $('ia-feedback-container');
+        const iaResumenGenerado = $('ia-resumen-generado');
+        const iaEvaluacion = $('ia-evaluacion');
+        const siguienteApartadoBtn = $('siguiente-apartado-btn');
+        const barraProgreso = $('barra-progreso');
+
+        // --- Lógica de la Aplicación ---
+
+        window.onload = async () => {
+            if (Object.keys(firebaseConfig).length === 0) {
+                mostrarError("Error de Configuración", "La configuración de Firebase no se ha cargado correctamente.");
+                return;
+            }
+
+            try {
+                const app = initializeApp(firebaseConfig);
+                db = getFirestore(app);
+                auth = getAuth(app);
+
+                // Autenticar al usuario
+                onAuthStateChanged(auth, async (user) => {
+                    if (user) {
+                        userId = user.uid;
+                        // El usuario está autenticado, ahora iniciamos la carga de datos
+                        await iniciarCargaDatos();
+                    } else {
+                        // Si no hay usuario, intentar autenticación anónima o con token
+                        try {
+                            if (initialAuthToken) {
+                                await signInWithCustomToken(auth, initialAuthToken);
+                            } else {
+                                await signInAnonymously(auth);
+                            }
+                            // onAuthStateChanged se disparará de nuevo
+                        } catch (authError) {
+                            console.error("Error de autenticación:", authError);
+                            mostrarError("Error de Autenticación", "No se pudo verificar tu identidad.");
+                        }
+                    }
+                });
+
+            } catch (e) {
+                console.error("Error al inicializar Firebase:", e);
+                mostrarError("Error de Inicialización", "No se pudo conectar con los servicios de la actividad.");
+            }
+        };
+
+        /**
+         * 1. Inicia la carga de datos después de la autenticación
+         */
+        async function iniciarCargaDatos() {
+            // 1. Obtener parámetros de la URL
+            const params = new URLSearchParams(window.location.search);
+            aulaId = params.get('aulaId');
+            alumnoId = params.get('alumnoId'); // Usamos el ID de alumno de la URL
+
+            if (!aulaId || !alumnoId) {
+                mostrarError("Faltan Datos", "No se ha especificado un aula o un alumno. Asegúrate de acceder desde el enlace correcto.");
+                return;
+            }
+
+            // 2. Cargar datos del aula desde Firestore
+            await cargarDatosAula(aulaId);
+        }
+
+        /**
+         * 2. Carga los datos del aula (PDF, etc.) desde Firestore
+         */
+        async function cargarDatosAula(id) {
+            try {
+                const docPath = `/artifacts/${appId}/public/data/aulas/${id}`;
+                const docRef = doc(db, docPath);
+                const docSnap = await getDoc(docRef);
+
+                if (docSnap.exists()) {
+                    aulaData = docSnap.data();
+                    pdfTitulo.textContent = aulaData.pdfTitulo || "Actividad de Resumen";
+                    pdfTexto.textContent = aulaData.pdfTextoCompleto || "No hay texto de PDF disponible.";
+                    
+                    // 3. Generar apartados con IA
+                    await generarApartados(aulaData.pdfTextoCompleto);
+
+                } else {
+                    mostrarError("Aula no encontrada", `No se encontraron datos para el aula con ID: ${id}`);
+                }
+            } catch (e) {
+                console.error("Error al cargar datos del aula:", e);
+                mostrarError("Error de Carga", "No se pudieron cargar los datos del aula desde Firestore.");
+            }
+        }
+
+        /**
+         * 3. Llama a la API de IA para generar los apartados del PDF
+         */
+        async function generarApartados(textoPdf) {
+            iaFeedbackContainer.innerHTML = '<p class="text-blue-600">Analizando el PDF y generando apartados con IA...</p>';
+            
+            const prompt = `
+                Basado en el siguiente texto de un documento, divídelo en apartados o secciones lógicas clave para un resumen.
+                Quiero que me devuelvas SOLAMENTE un array JSON, sin nada más antes o después.
+                Cada objeto del array debe tener dos claves: "titulo" (un título corto para el apartado) y "contenido" (el fragmento de texto de ese apartado).
+                
+                Ejemplo de formato de respuesta:
+                [
+                    {"titulo": "Introducción al Tema", "contenido": "El texto de la introducción..."},
+                    {"titulo": "Desarrollo Principal", "contenido": "El texto del desarrollo..."}
+                ]
+
+                Texto del documento:
+                ---
+                ${textoPdf}
+                ---
+            `;
+
+            try {
+                const generados = await callGeminiAPI(prompt, true);
+                if (generados && generados.length > 0) {
+                    apartadosGenerados = generados;
+                    apartadoActualIndex = 0;
+                    mostrarApartadoActual();
+                    loadingSpinner.classList.add('hidden');
+                    appContainer.classList.remove('hidden');
+                    iaFeedbackContainer.innerHTML = ''; // Limpiar mensaje de carga
+                } else {
+                    throw new Error("La IA no devolvió apartados válidos.");
+                }
+            } catch (e) {
+                console.error("Error al generar apartados:", e);
+                // Fallback: si la IA falla, usar el texto completo como un solo apartado
+                apartadosGenerados = [{
+                    titulo: "Documento Completo",
+                    contenido: textoPdf
+                }];
+                apartadoActualIndex = 0;
+                mostrarApartadoActual();
+                loadingSpinner.classList.add('hidden');
+                appContainer.classList.remove('hidden');
+                iaFeedbackContainer.innerHTML = '<p class="text-red-600">La IA no pudo dividir el texto; se cargará como un solo apartado.</p>';
+            }
+        }
+
+        /**
+         * 4. Muestra el apartado actual en la UI
+         */
+        function mostrarApartadoActual() {
+            if (apartadoActualIndex >= apartadosGenerados.length) {
+                finalizarActividad();
+                return;
+            }
+
+            const apartado = apartadosGenerados[apartadoActualIndex];
+            apartadoTitulo.textContent = `Apartado ${apartadoActualIndex + 1} de ${apartadosGenerados.length}: ${apartado.titulo}`;
+            
+            // Limpiar campos para el nuevo apartado
+            resumenTituloUsuario.value = '';
+            resumenTextoUsuario.value = '';
+            iaFeedbackContainer.classList.add('hidden');
+            iaResumenGenerado.innerHTML = '';
+            iaEvaluacion.innerHTML = '';
+            siguienteApartadoBtn.classList.add('hidden');
+            evaluarResumenBtn.classList.remove('hidden');
+            evaluarResumenBtn.disabled = false;
+
+            // Actualizar barra de progreso
+            const progreso = ((apartadoActualIndex + 1) / apartadosGenerados.length) * 100;
+            barraProgreso.style.width = `${progreso}%`;
+        }
+
+        /**
+         * 5. Lógica del botón de Evaluación
+         */
+        async function handleEvaluarResumen() {
+            const titulo = resumenTituloUsuario.value.trim();
+            const texto = resumenTextoUsuario.value.trim();
+            const lineas = texto.split('\n').filter(line => line.trim() !== '');
+
+            // Validaciones
+            if (titulo === "") {
+                mostrarErrorTemporal("Falta el título", "Debes poner un título a tu resumen antes de evaluar.");
+                return;
+            }
+            if (lineas.length < 5) {
+                mostrarErrorTemporal("Resumen muy corto", `Tu resumen debe tener al menos 5 líneas. Actualmente tienes ${lineas.length}.`);
+                return;
+            }
+
+            evaluarResumenBtn.disabled = true;
+            evaluarResumenBtn.textContent = "Evaluando con IA...";
+            iaFeedbackContainer.classList.remove('hidden');
+            iaResumenGenerado.innerHTML = '<p class="text-blue-600">Generando resumen de referencia...</p>';
+            iaEvaluacion.innerHTML = '<p class="text-blue-600">Evaluando tu aporte...</p>';
+
+            const contenidoApartado = apartadosGenerados[apartadoActualIndex].contenido;
+
+            try {
+                // --- Tarea 1: Generar Resumen de Referencia (como pediste) ---
+                const promptResumen = `
+                    Genera un resumen conciso y claro del siguiente texto. 
+                    Este resumen servirá como referencia para un estudiante.
+                    
+                    Texto a resumir:
+                    ---
+                    ${contenidoApartado}
+                    ---
+                `;
+                const resumenIA = await callGeminiAPI(promptResumen);
+                iaResumenGenerado.innerHTML = `
+                    <h4 class="font-semibold text-gray-700 mb-2">Resumen de Referencia (IA):</h4>
+                    <p class="text-gray-600 text-sm">${resumenIA}</p>
+                `;
+
+                // --- Tarea 2: Evaluar el Resumen del Alumno ---
+                const promptEvaluacion = `
+                    Eres un profesor asistente. Un estudiante te ha entregado un resumen de un texto.
+                    Quiero que evalúes el resumen del estudiante comparándolo con el texto original.
+                    
+                    Tu evaluación debe ser constructiva y seguir esta estructura:
+                    1.  **Puntos Fuertes:** Qué hizo bien el estudiante (ej. captó la idea principal, buena síntesis).
+                    2.  **Puntos de Mejora:** Qué faltó o qué se puede explicar mejor (ej. faltaron detalles clave, se desvió del tema).
+                    3.  **Sugerencia:** Un consejo para mejorar.
+                    
+                    TEXTO ORIGINAL (del apartado):
+                    ---
+                    ${contenidoApartado}
+                    ---
+                    
+                    RESUMEN DEL ESTUDIANTE (Título: ${titulo}):
+                    ---
+                    ${texto}
+                    ---
+                `;
+                const evaluacionIA = await callGeminiAPI(promptEvaluacion);
+                iaEvaluacion.innerHTML = `
+                    <h4 class="font-semibold text-gray-700 mt-4 mb-2">Evaluación de tu Resumen (IA):</h4>
+                    <div class="text-gray-600 text-sm whitespace-pre-wrap">${evaluacionIA}</div>
+                `;
+
+                // Guardar progreso en Firestore (opcional pero recomendado)
+                guardarProgresoEnFirestore(apartadoActualIndex, titulo, texto, evaluacionIA);
+
+                // Mostrar botón de siguiente
+                evaluarResumenBtn.classList.add('hidden');
+                siguienteApartadoBtn.classList.remove('hidden');
+
+            } catch (e) {
+                console.error("Error en la evaluación con IA:", e);
+                iaFeedbackContainer.innerHTML = `<p class="text-red-600">Error al contactar con la IA. Inténtalo de nuevo.</p>`;
+                evaluarResumenBtn.disabled = false;
+            } finally {
+                evaluarResumenBtn.textContent = "Autoevaluar con IA";
+            }
+        }
+
+        /**
+         * 6. Guardar el progreso del alumno en Firestore
+         */
+        async function guardarProgresoEnFirestore(index, tituloResumen, textoResumen, evaluacion) {
+            try {
+                // Ruta: /artifacts/{appId}/public/data/aulas/{aulaId}/alumnos/{alumnoId}/progresos/{apartadoIndex}
+                const docPath = `/artifacts/${appId}/public/data/aulas/${aulaId}/alumnos/${alumnoId}/progresos/${index}`;
+                await setDoc(doc(db, docPath), {
+                    apartadoTitulo: apartadosGenerados[index].titulo,
+                    resumenTitulo: tituloResumen,
+                    resumenTexto: textoResumen,
+                    evaluacionIA: evaluacion,
+                    timestamp: new Date()
+                });
+            } catch (e) {
+                console.warn("No se pudo guardar el progreso en Firestore:", e);
+                // No es un error crítico, el alumno puede continuar
+            }
+        }
+
+        /**
+         * 7. Finalizar la actividad
+         */
+        function finalizarActividad() {
+            appContainer.innerHTML = `
+                <div class="text-center p-8 bg-white rounded-lg shadow-xl">
+                    <h2 class="text-3xl font-bold text-green-600 mb-4">¡Actividad Completada!</h2>
+                    <p class="text-lg text-gray-700">Has finalizado todos los apartados de resumen para el documento:</p>
+                    <p class="text-xl font-semibold text-blue-800 mt-2">${aulaData.pdfTitulo}</p>
+                    <p class="mt-6 text-gray-600">Puedes cerrar esta ventana. Tu progreso ha sido guardado.</p>
+                </div>
+            `;
+        }
+
+
+        // --- Funciones de Utilidad ---
+
+        /**
+         * Función central para llamar a la API de Gemini
+         */
+        async function callGeminiAPI(prompt, expectJson = false) {
+            const payload = {
+                contents: [{ parts: [{ text: prompt }] }],
+                generationConfig: expectJson ? { responseMimeType: "application/json" } : {}
+            };
+
+            const response = await fetch(GEMINI_API_URL, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+
+            if (!response.ok) {
+                throw new Error(`Error de la API: ${response.statusText}`);
+            }
+
+            const result = await response.json();
+            
+            if (!result.candidates || !result.candidates[0].content) {
+                 throw new Error("Respuesta inesperada de la API de Gemini.");
+            }
+
+            const text = result.candidates[0].content.parts[0].text;
+            
+            if (expectJson) {
+                try {
+                    // Limpiar el texto si la API envuelve el JSON en markdown
+                    const cleanedText = text.replace(/^```json\n/, '').replace(/\n```$/, '');
+                    return JSON.parse(cleanedText);
+                } catch (e) {
+                    console.error("La IA no devolvió un JSON válido:", text);
+                    throw new Error("La IA no devolvió un JSON válido.");
+                }
+            } else {
+                return text;
+            }
+        }
+
+        function mostrarError(titulo, mensaje) {
+            loadingSpinner.classList.add('hidden');
+            appContainer.classList.add('hidden');
+            errorContainer.classList.remove('hidden');
+            errorMessage.innerHTML = `<strong>${titulo}</strong><br>${mensaje}`;
+        }
+
+        function mostrarErrorTemporal(titulo, mensaje) {
+            // Esta función podría mostrar un modal temporal
+            // Por ahora, usamos un alert simple (aunque no ideal)
+            alert(`${titulo}: ${mensaje}`);
+        }
+
+        // --- Event Listeners de la UI ---
+        togglePdfButton.addEventListener('click', () => {
+            pdfTextoContainer.classList.toggle('hidden');
+            togglePdfButton.textContent = pdfTextoContainer.classList.contains('hidden') 
+                ? 'Mostrar Texto del PDF' 
+                : 'Ocultar Texto del PDF';
+        });
+
+        evaluarResumenBtn.addEventListener('click', handleEvaluarResumen);
+        
+        siguienteApartadoBtn.addEventListener('click', () => {
+            apartadoActualIndex++;
+            mostrarApartadoActual();
+        });
+
+    </script>
     <style>
         body {
             font-family: 'Inter', sans-serif;
-            background-color: #f4f7f9;
         }
-        .prose-custom p, .prose-custom li { margin-bottom: 1em; }
-        .prose-custom h1, .prose-custom h2, .prose-custom h3, .prose-custom h4 { margin-bottom: 0.5em; }
-        .feedback-card, .progress-bar-inner {
-            transition: all 0.5s ease-in-out;
-        }
-        .loader {
-            border: 4px solid #f3f3f3;
-            border-top: 4px solid #3498db;
-            border-radius: 50%;
-            width: 24px;
-            height: 24px;
-            animation: spin 1s linear infinite;
-        }
-        @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
-        }
-        [hidden] { display: none !important; }
-
-        /* Estilos para la pantalla de login (Nick) */
-        #login-overlay {
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background-color: rgba(244, 247, 249, 0.9);
-            backdrop-filter: blur(10px);
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            z-index: 999;
+        /* Estilo para el contenedor del PDF */
+        #pdf-texto-container {
+            max-height: 300px; /* Altura máxima inicial */
+            transition: max-height 0.3s ease-in-out;
         }
     </style>
-
-    <!-- Cargamos Firebase con el método "clásico" (compat) -->
-    <script src="https://www.gstatic.com/firebasejs/11.6.1/firebase-app-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/11.6.1/firebase-auth-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore-compat.js"></script>
-
-    <script>
-        // --- INICIO: ENVOLTURA DOMCONTENTLOADED ---
-        document.addEventListener('DOMContentLoaded', () => {
-
-            // --- TU CONFIGURACIÓN DE FIREBASE (YA INCLUIDA) ---
-            const firebaseConfig = {
-                apiKey: "AIzaSyBiaYwiczL2M-1jr6G7DAAhRTyF1SXJKRI",
-                authDomain: "resumencomputacionfisica.firebaseapp.com",
-                projectId: "resumencomputacionfisica",
-                storageBucket: "resumencomputacionfisica.firebasestorage.app",
-                messagingSenderId: "411512056489",
-                appId: "1:411512056489:web:75fd8e99317937c38297b8"
-            };
-            // -----------------------------------------------------
-
-            const sectionsData = [
-                {
-                    title: "1. ¿Qué es la Computación Física?",
-                    content: `<p>La <strong>computación física</strong> se centra en el estudio de los entornos, tanto <strong>software</strong> como <strong>hardware</strong>, que permiten establecer comunicación entre el <strong>mundo físico</strong> y el <strong>mundo virtual</strong>.</p><p>Es la base de la programación y la robótica, conectando los ordenadores con el mundo real.</p>`,
-                    keywords: ['computación física', 'software', 'hardware', 'mundo físico', 'mundo virtual']
-                },
-                {
-                    title: "2. ¿Qué es la Programación?",
-                    content: `<p>Un <strong>programa</strong> es un conjunto de <strong>instrucciones</strong> ordenadas de forma <strong>secuencial</strong> que permiten a un ordenador interpretar una información de entrada, procesarla y producir una información de salida.</p><p>Un <strong>algoritmo</strong> es una secuencia definida, ordenada y finita de instrucciones que permiten hallar la solución a un problema.</p>`,
-                    keywords: ['programa', 'algoritmo', 'instrucciones', 'secuencial']
-                },
-                {
-                    title: "3. Variables y Tipos de Datos",
-                    content: `<p>Una <strong>variable</strong> es un espacio en la memoria donde se almacena un dato que puede cambiar. Una <strong>constante</strong> es un valor que no puede ser alterado.</p><p>Cada variable tiene un <strong>tipo de dato</strong> asociado, como <strong>Numérico</strong> (enteros, decimales), <strong>Texto</strong> (cadenas de caracteres) o <strong>Booleano</strong> (verdadero/falso).</p>`,
-                    keywords: ['variable', 'constante', 'tipo de dato', 'numérico', 'texto', 'booleano']
-                },
-                {
-                    title: "4. Operadores",
-                    content: `<p>Los <strong>operadores</strong> realizan operaciones entre variables y valores.</p><ul><li><strong>Aritméticos:</strong> Suma (+), resta (-), multiplicación (*), división (/).</li><li><strong>Relacionales:</strong> Comparan valores (== igual, != distinto, > mayor que, < menor que).</li><li><strong>Lógicos:</strong> Combinan expresiones booleanas (AND, OR, NOT).</li></ul>`,
-                    keywords: ['operadores', 'aritméticos', 'relacionales', 'lógicos']
-                },
-                {
-                    title: "5. Estructuras Condicionales",
-                    content: `<p>Permiten que un programa tome decisiones. La estructura <strong>if-else</strong> ejecuta un bloque de código si una condición es verdadera, y otro bloque si es falsa.</p><p>Se puede usar solo <strong>if</strong> para ejecutar código solo si la condición es verdadera, sin una alternativa.</p>`,
-                    keywords: ['condicional', 'if', 'else', 'if-else']
-                },
-                {
-                    title: "6. Estructuras Repetitivas (Bucles)",
-                    content: `<p>Un <strong>bucle</strong> o ciclo permite ejecutar un bloque de código repetidamente. La <strong>iteración</strong> es cada una de las repeticiones.</p><ul><li><strong>Bucle while:</strong> Se ejecuta mientras una condición sea verdadera.</li><li><strong>Bucle for:</strong> Se ejecuta un número predeterminada de veces.</li></ul>`,
-                    keywords: ['bucle', 'iteración', 'while', 'for']
-                }
-            ];
-            
-            let app, auth, db, userId, userDisplayName;
-            let currentSectionIndex = 0;
-            let allDOMElements = {};
-            let userSummaries = []; 
-
-            function renderSection(index) {
-                const section = sectionsData[index];
-                allDOMElements.sectionTitle.textContent = section.title;
-                allDOMElements.sourceTextDisplay.innerHTML = section.content;
-                
-                allDOMElements.studentSummary.value = '';
-                allDOMElements.wordCount.textContent = '0';
-                allDOMElements.feedbackArea.hidden = true;
-                allDOMElements.geminiFeedbackArea.hidden = true;
-                allDOMElements.navigationArea.hidden = true;
-                allDOMElements.geminiEvaluateBtn.disabled = true;
-                allDOMElements.evaluateBtn.disabled = false;
-                allDOMElements.alternativeExplanationDisplay.classList.add('hidden');
-                allDOMElements.sourceTextDisplay.classList.remove('hidden');
-
-                updateUserProgressBar();
-            }
-
-            function updateUserProgressBar() {
-                const percentage = Math.round((currentSectionIndex / sectionsData.length) * 100);
-                allDOMElements.userProgressBar.style.width = percentage + '%';
-                allDOMElements.userProgressBar.textContent = percentage + '%';
-            }
-            
-            async function updateProgressInFirestore() {
-                if (!userId || !db) return;
-                
-                if (!userDisplayName) {
-                    userDisplayName = allDOMElements.nickInput.value.trim() || "Anónimo";
-                }
-
-                const percentage = Math.round(((currentSectionIndex + 1) / sectionsData.length) * 100);
-                const userProgressRef = db.doc(`progress/${userId}`);
-                try {
-                    await userProgressRef.set({ 
-                        progress: percentage,
-                        name: userDisplayName 
-                    }, { merge: true });
-                } catch(e) { console.error("Error guardando progreso:", e); }
-            }
-
-            async function loadUserProgress() {
-                if (!userId || !db) return;
-                const userProgressRef = db.doc(`progress/${userId}`);
-                try {
-                    const doc = await userProgressRef.get();
-                    if (doc.exists) {
-                        const data = doc.data();
-                        const savedProgressPercent = data.progress || 0;
-                        userDisplayName = data.name; 
-                        
-                        currentSectionIndex = Math.floor((savedProgressPercent / 100) * sectionsData.length);
-                        if (currentSectionIndex >= sectionsData.length) {
-                            currentSectionIndex = sectionsData.length; 
-                        }
-                    }
-                } catch (e) {
-                    console.error("Error cargando progreso del usuario:", e);
-                }
-                
-                if (currentSectionIndex >= sectionsData.length) {
-                    allDOMElements.loginOverlay.hidden = true;
-                    allDOMElements.mainAppContent.hidden = false; 
-                    document.getElementById('student-workspace').innerHTML = `
-                            <div class="col-span-2 text-center bg-white p-12 rounded-2xl shadow-lg">
-                                <h2 class="text-4xl font-bold text-green-600">¡Bienvenido de nuevo, ${userDisplayName}!</h2>
-                                <p class="text-gray-700 mt-4 text-lg">Ya has completado todos los apartados de la actividad. ¡Gran trabajo!</p>
-                                <button id="download-btn" class="mt-8 bg-green-600 text-white font-bold py-3 px-8 rounded-lg hover:bg-green-700 focus:outline-none focus:ring-4 focus:ring-green-300 transition-transform transform hover:scale-105">
-                                    📥 Descargar Mis Resúmenes de Nuevo
-                                </button>
-                            </div>`;
-                    document.getElementById('download-btn').addEventListener('click', downloadSummaries);
-                    updateUserProgressBar(); 
-                }
-                else if (!userDisplayName) {
-                    allDOMElements.loginOverlay.hidden = false;
-                    allDOMElements.mainAppContent.hidden = true;
-                } else {
-                    allDOMElements.loginOverlay.hidden = true;
-                    allDOMElements.mainAppContent.hidden = false;
-                    renderSection(currentSectionIndex);
-                }
-            }
-            
-            function listenForLeaderboardUpdates() {
-                if (!db) return;
-                const progressCollectionRef = db.collection(`progress`);
-                
-                progressCollectionRef.onSnapshot((snapshot) => {
-                    const progresses = [];
-                    snapshot.forEach(doc => {
-                        progresses.push({ id: doc.id, ...doc.data() });
-                    });
-
-                    allDOMElements.leaderboard.innerHTML = '';
-                    if (progresses.length === 0) {
-                         allDOMElements.leaderboard.innerHTML = '<p class="text-gray-500">Aún no hay nadie en la clasificación. ¡Sé el primero!</p>';
-                         return;
-                    }
-
-                    progresses.sort((a, b) => b.progress - a.progress);
-
-                    progresses.forEach(p => {
-                        const isCurrentUser = p.id === userId;
-                        const displayName = p.name || `Compañero ${p.id.substring(0,6)}`;
-                        
-                        const container = document.createElement('div');
-                        container.className = 'flex items-center space-x-3';
-                        
-                        const label = document.createElement('p');
-                        label.className = `w-1/4 text-sm font-medium ${isCurrentUser ? 'text-blue-600' : 'text-gray-600'}`;
-                        label.textContent = isCurrentUser ? `Tú (${displayName})` : displayName;
-
-                        const barContainer = document.createElement('div');
-                        barContainer.className = 'w-3/4 bg-gray-200 rounded-full h-4';
-                        
-                        const bar = document.createElement('div');
-                        bar.className = `h-4 rounded-full ${isCurrentUser ? 'bg-blue-500' : 'bg-gray-400'}`;
-                        bar.style.width = `${p.progress}%`;
-                        bar.textContent = `${p.progress}%`;
-                        bar.classList.add('text-center', 'text-white', 'text-xs', 'leading-4');
-                        
-                        barContainer.appendChild(bar);
-                        container.appendChild(label);
-                        container.appendChild(barContainer);
-                        allDOMElements.leaderboard.appendChild(container);
-                    });
-                });
-            }
-            
-            async function callGeminiAPI(prompt, button) {
-                const originalText = button.innerHTML;
-                button.disabled = true;
-                button.innerHTML = '<div class="loader"></div>';
-
-                try {
-                    const API_KEY = ""; 
-                    const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${API_KEY}`;
-                    const payload = { contents: [{ parts: [{ text: prompt }] }] };
-                    const response = await fetch(API_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
-                    if (!response.ok) throw new Error(`Error en la API: ${response.statusText}`);
-                    const result = await response.json();
-                    const candidate = result.candidates?.[0];
-                    if (candidate?.content?.parts?.[0]?.text) {
-                        return candidate.content.parts[0].text.replace(/\n/g, '<br>');
-                    } else { throw new Error("No se recibió contenido válido de la API."); }
-                } catch (error) {
-                    console.error("Error llamando a la API de Gemini:", error);
-                    return "Lo siento, ha ocurrido un error al contactar con la IA.";
-                } finally {
-                    button.disabled = false;
-                    button.innerHTML = originalText;
-                }
-            }
-            
-            function downloadSummaries() {
-                let fileContent = "Mis Resúmenes - Pensamiento Computacional\n\n";
-                fileContent += `Alumno: ${userDisplayName}\n\n`;
-
-                userSummaries.forEach(item => {
-                    fileContent += `========================================\n`;
-                    fileContent += `${item.title}\n`;
-                    fileContent += `========================================\n`;
-                    fileContent += `${item.summary}\n\n`;
-                });
-
-                const blob = new Blob([fileContent], { type: 'text/plain;charset=utf-8' });
-                const link = document.createElement('a');
-                link.href = URL.createObjectURL(blob);
-                link.download = `resumenes_${userDisplayName.replace(/ /g, '_')}.txt`;
-                
-                document.body.appendChild(link);
-                link.click();
-                document.body.removeChild(link);
-                URL.revokeObjectURL(link.href);
-            }
-
-            function initializeAppUI() {
-                allDOMElements = {
-                    loginOverlay: document.getElementById('login-overlay'),
-                    loginBtn: document.getElementById('login-btn'),
-                    nickInput: document.getElementById('nick-input'),
-                    nickError: document.getElementById('nick-error'),
-                    mainAppContent: document.getElementById('main-app-content'),
-                    userProgressBar: document.getElementById('user-progress-bar'),
-                    leaderboard: document.getElementById('leaderboard'),
-                    sectionTitle: document.getElementById('section-title'),
-                    sourceTextDisplay: document.getElementById('source-text-display'),
-                    alternativeExplanationDisplay: document.getElementById('alternative-explanation-display'),
-                    studentSummary: document.getElementById('student-summary'),
-                    wordCount: document.getElementById('word-count'),
-                    evaluateBtn: document.getElementById('evaluate-btn'),
-                    geminiEvaluateBtn: document.getElementById('gemini-evaluate-btn'),
-                    feedbackArea: document.getElementById('feedback-area'),
-                    feedbackContent: document.getElementById('feedback-content'),
-                    geminiFeedbackArea: document.getElementById('gemini-feedback-area'),
-                    navigationArea: document.getElementById('navigation-area'),
-                    nextSectionBtn: document.getElementById('next-section-btn'),
-                    alternativeExplanationBtn: document.getElementById('alternative-explanation-btn'),
-                };
-
-                allDOMElements.studentSummary.addEventListener('input', () => {
-                    const text = allDOMElements.studentSummary.value.trim();
-                    const words = text === '' ? 0 : text.split(/\s+/).length;
-                    allDOMElements.wordCount.textContent = words;
-                });
-
-                allDOMElements.evaluateBtn.addEventListener('click', () => {
-                    const summaryText = allDOMElements.studentSummary.value.toLowerCase();
-                    const { keywords } = sectionsData[currentSectionIndex];
-                    
-                    let foundKeywords = keywords.filter(kw => new RegExp(`\\b${kw.replace(/[-/\\^$*+?.()|[\]{}]/g, '\\$&').replace(/\s/g, '\\s')}\\b`, 'i').test(summaryText));
-                    let missingKeywords = keywords.filter(kw => !foundKeywords.includes(kw));
-
-                    allDOMElements.feedbackContent.innerHTML = `
-                        <div class="feedback-card bg-green-50 p-4 rounded-lg border border-green-200">
-                            <h4 class="font-bold text-green-800 mb-2">✅ Conceptos Incluidos</h4>
-                            <ul class="list-disc list-inside text-green-700">${foundKeywords.length > 0 ? foundKeywords.map(k => `<li>${k}</li>`).join('') : '<li class="italic text-gray-500">Ninguno.</li>'}</ul>
-                        </div>
-                        <div class="feedback-card bg-red-50 p-4 rounded-lg border border-red-200">
-                            <h4 class="font-bold text-red-800 mb-2">🔍 Conceptos a Repasar</h4>
-                             <ul class="list-disc list-inside text-red-700">${missingKeywords.length > 0 ? missingKeywords.map(k => `<li>${k}</li>`).join('') : '<li class="italic text-gray-500">¡Ninguno!</li>'}</ul>
-                        </div>
-                    `;
-                    allDOMElements.feedbackArea.hidden = false;
-                    allDOMElements.geminiEvaluateBtn.disabled = false;
-                    allDOMElements.navigationArea.hidden = false;
-                    allDOMElements.evaluateBtn.disabled = true;
-                });
-
-                allDOMElements.nextSectionBtn.addEventListener('click', () => {
-                    const currentSummary = allDOMElements.studentSummary.value;
-                    const currentTitle = sectionsData[currentSectionIndex].title;
-                    userSummaries.push({ title: currentTitle, summary: currentSummary });
-
-                    updateProgressInFirestore(); 
-                    currentSectionIndex++;
-                    if (currentSectionIndex < sectionsData.length) {
-                        renderSection(currentSectionIndex);
-                    } else {
-                        document.getElementById('student-workspace').innerHTML = `
-                            <div class="col-span-2 text-center bg-white p-12 rounded-2xl shadow-lg">
-                                <h2 class="text-4xl font-bold text-green-600">¡Enhorabuena, ${userDisplayName}!</h2>
-                                <p class="text-gray-700 mt-4 text-lg">Has completado todos los apartados de la actividad. ¡Gran trabajo!</p>
-                                <button id="download-btn" class="mt-8 bg-green-600 text-white font-bold py-3 px-8 rounded-lg hover:bg-green-700 focus:outline-none focus:ring-4 focus:ring-green-300 transition-transform transform hover:scale-105">
-                                    📥 Descargar Mis Resúmenes
-                                </button>
-                            </div>`;
-                        
-                        document.getElementById('download-btn').addEventListener('click', downloadSummaries);
-                        
-                        updateUserProgressBar(); 
-                        updateProgressInFirestore(); 
-                    }
-                });
-                
-                allDOMElements.alternativeExplanationBtn.addEventListener('click', async () => {
-                    const sourceText = allDOMElements.sourceTextDisplay.innerText;
-                    const prompt = `Eres un profesor de tecnología para alumnos de 16 años en España. Re-explica el siguiente texto de una forma más sencilla, clara y usando una analogía. TEXTO: "${sourceText}"`;
-                    const explanation = await callGeminiAPI(prompt, allDOMElements.alternativeExplanationBtn);
-                    allDOMElements.alternativeExplanationDisplay.innerHTML = explanation;
-                    allDOMElements.alternativeExplanationDisplay.classList.remove('hidden');
-                    allDOMElements.sourceTextDisplay.classList.add('hidden');
-                });
-
-                allDOMElements.geminiEvaluateBtn.addEventListener('click', async () => {
-                    const { content, keywords } = sectionsData[currentSectionIndex];
-                    const summaryText = allDOMElements.studentSummary.value;
-                    const prompt = `Actúa como un profesor de "Creación Digital" para un alumno de 1º de Bachillerato. Evalúa en un párrafo corto si el resumen del alumno explica bien la RELACIÓN entre los conceptos. Dale feedback constructive. TEXTO ORIGINAL: "${content.replace(/<[^>]+>/g, '')}" RESUMEN DEL ALUMNO: "${summaryText}" CONCEPTO CLAVE: "${keywords.join(', ')}"`;
-                    const evaluation = await callGeminiAPI(prompt, allDOMElements.geminiEvaluateBtn);
-                    allDOMElements.geminiFeedbackArea.innerHTML = `<h3 class="text-xl font-bold mb-3 text-green-800">Valoración con IA</h3><div class="p-4 bg-green-50 border border-green-200 rounded-lg prose prose-custom text-gray-700">${evaluation}</div>`;
-                    allDOMElements.geminiFeedbackArea.hidden = false;
-                });
-
-                allDOMElements.loginBtn.addEventListener('click', async () => {
-                    const nick = allDOMElements.nickInput.value.trim();
-                    if (nick === "") {
-                        allDOMElements.nickError.hidden = false;
-                        return;
-                    }
-                    allDOMElements.nickError.hidden = true;
-                    userDisplayName = nick;
-                    
-                    await updateProgressInFirestore();
-                    
-                    allDOMElements.loginOverlay.hidden = true;
-                    allDOMElements.mainAppContent.hidden = false;
-                    renderSection(currentSectionIndex); 
-                });
-                
-                listenForLeaderboardUpdates();
-                loadUserProgress();
-            }
-
-
-            // --- PUNTO DE ENTRADA PRINCIPAL (AUTENTICACIÓN) ---
-            try {
-                if (!firebaseConfig || !firebaseConfig.apiKey || firebaseConfig.apiKey.includes("...")) {
-                     if(firebaseConfig.apiKey === "AIzaSyBiaYwiczL2M-1jr6G7DAAhRTyF1SXJKRI") {
-                        // Es tu config real, todo bien
-                     } else {
-                        throw new Error("firebaseConfig no está completa. Por favor, pega tu configuración de Firebase.");
-                     }
-                }
-                
-                app = firebase.initializeApp(firebaseConfig);
-                auth = firebase.auth(app);
-                db = firebase.firestore(app);
-            } catch(e) { 
-                console.error("Error inicializando Firebase:", e); 
-                document.body.innerHTML = `<div class="text-center p-8 text-red-500">Error fatal: No se pudo inicializar la aplicación. Revisa que la \`firebaseConfig\` sea correcta y no esté vacía.</div>`;
-            }
-
-            if (auth) {
-                auth.onAuthStateChanged(async (user) => {
-                    if (!user) {
-                        try {
-                             await auth.signInAnonymously();
-                        } catch(e) { 
-                            console.error("Error en autenticación:", e); 
-                            // --- ESTA ES LA CORRECCIÓN ---
-                            // Captura el error específico y muestra cómo solucionarlo
-                            if (e.code === 'auth/configuration-not-found' || e.code === 'auth/operation-not-allowed') {
-                                document.body.innerHTML = `<div class="text-center p-8 text-red-500"><b>Error Fatal de Configuración:</b> El servicio de 'Autenticación Anónima' no está habilitado en tu proyecto de Firebase.<br><br>Por favor, ve a tu consola de Firebase -> Authentication -> Sign-in method -> y habilita 'Anónimo'.</div>`;
-                            } else {
-                                document.body.innerHTML = `<div class="text-center p-8 text-red-500">Error fatal: No se pudo conectar con el servicio de autenticación.</div>`;
-                            }
-                        }
-                    } else {
-                        userId = user.uid;
-                        if (allDOMElements.userProgressBar) return; 
-                        initializeAppUI();
-                    }
-                });
-            }
-
-        }); // --- FIN: ENVOLTURA DOMCONTENTLOADED ---
-
-    </script>
 </head>
-<body class="text-gray-800">
+<body class="bg-gray-100 min-h-screen flex items-center justify-center p-4">
 
-    <!-- PANTALLA DE LOGIN (NICKNAME) -->
-    <div id="login-overlay" hidden>
-        <div class="bg-white p-10 rounded-2xl shadow-2xl text-center max-w-sm w-full mx-4">
-            <h2 class="text-2xl font-bold mb-4 text-gray-900">Bienvenido/a</h2>
-            <p class="text-gray-600 mb-6">Escribe un "Nick" o tu IDEA para guardar tu progreso y ver el de tus compañeros.</p>
-            <input id="nick-input" type="text" placeholder="Escribe tu nick aquí..." class="w-full p-3 border border-gray-300 rounded-lg mb-4 focus:ring-2 focus:ring-blue-500">
-            <button id="login-btn" class="w-full bg-blue-600 text-white font-bold py-3 px-6 rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-4 focus:ring-blue-300 transition-transform transform hover:scale-105">
-                Comenzar Actividad
-            </button>
-            <p id="nick-error" class="text-red-500 text-sm mt-3" hidden>Por favor, escribe un nick.</p>
-        </div>
+    <!-- 1. Estado de Carga -->
+    <div id="loading-spinner" class="text-center">
+        <svg class="animate-spin h-10 w-10 text-blue-600 mx-auto" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+        </svg>
+        <p class="mt-4 text-lg text-gray-700 font-semibold">Cargando actividad...</p>
+        <p class="text-gray-500">Preparando tu entorno de resumen.</p>
     </div>
 
-    <!-- CONTENIDO PRINCIPAL DE LA APP (Oculto al inicio) -->
-    <div id="main-app-content" class="container mx-auto p-4 md:p-8 max-w-7xl" hidden>
-        <header class="text-center mb-6">
-            <h1 class="text-3xl md:text-4xl font-bold text-gray-900">Actividad: Pensamiento Computacional</h1>
-            <p class="text-gray-600 mt-2">Completa cada apartado para avanzar y ver tu progreso.</p>
+    <!-- 2. Estado de Error -->
+    <div id="error-container" class="hidden bg-white p-8 rounded-lg shadow-xl max-w-md w-full text-center">
+        <h2 class="text-2xl font-bold text-red-600 mb-4">Ha ocurrido un error</h2>
+        <p id="error-message" class="text-gray-700"></p>
+    </div>
+
+    <!-- 3. Contenedor Principal de la Aplicación -->
+    <div id="app-container" class="hidden max-w-4xl w-full bg-white rounded-lg shadow-2xl overflow-hidden">
+        
+        <!-- Cabecera y Progreso -->
+        <header class="p-6 border-b border-gray-200">
+            <h1 id="pdf-titulo" class="text-2xl font-bold text-gray-800 text-center">Cargando título...</h1>
+            <div class="w-full bg-gray-200 rounded-full h-2.5 mt-4">
+                <div id="barra-progreso" class="bg-blue-600 h-2.5 rounded-full" style="width: 0%"></div>
+            </div>
         </header>
 
-        <!-- Sección de Progreso -->
-        <div class="bg-white p-6 rounded-2xl shadow-lg border border-gray-200 mb-8">
-            <h2 class="text-xl font-bold mb-4">Tu Progreso</h2>
-            <div class="w-full bg-gray-200 rounded-full h-6 mb-4">
-                <div id="user-progress-bar" class="progress-bar-inner bg-blue-600 h-6 text-xs font-medium text-blue-100 text-center p-1 leading-none rounded-full" style="width: 0%">0%</div>
+        <!-- Cuerpo Principal (PDF y Resumen) -->
+        <div class="p-6 md:p-8 grid md:grid-cols-2 gap-8">
+
+            <!-- Columna Izquierda: PDF y Apartado -->
+            <div class="flex flex-col space-y-4">
+                <button id="toggle-pdf-button" class="w-full text-left font-semibold text-blue-600 hover:text-blue-800">
+                    Ocultar Texto del PDF
+                </button>
+                <div id="pdf-texto-container" class="bg-gray-50 border border-gray-200 rounded-lg p-4 overflow-y-auto">
+                    <pre id="pdf-texto" class="text-sm text-gray-600 whitespace-pre-wrap font-sans">Cargando texto...</pre>
+                </div>
+                
+                <div class="mt-4">
+                    <h3 id="apartado-titulo" class="text-lg font-semibold text-gray-800 mb-2">Cargando apartado...</h3>
+                    <p class="text-sm text-gray-500">Lee el texto del PDF (o el contenido específico del apartado si la IA lo ha dividido) y crea tu resumen a continuación.</p>
+                </div>
             </div>
 
-            <h2 class="text-xl font-bold mb-2">Progreso de la Clase</h2>
-            <div id="leaderboard" class="space-y-2 max-h-40 overflow-y-auto">
-                <p class="text-gray-500">Cargando progreso de los compañeros...</p>
+            <!-- Columna Derecha: Input del Alumno y Feedback IA -->
+            <div class="flex flex-col space-y-4">
+                <h3 class="text-lg font-semibold text-gray-800">Tu Resumen del Apartado</h3>
+                
+                <!-- Título del Resumen del Alumno -->
+                <div>
+                    <label for="resumen-titulo-usuario" class="block text-sm font-medium text-gray-700">Título de tu Resumen</label>
+                    <input type="text" id="resumen-titulo-usuario" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm" placeholder="Ej: Ideas Principales de la Introducción">
+                </div>
+                
+                <!-- Texto del Resumen del Alumno -->
+                <div>
+                    <label for="resumen-texto-usuario" class="block text-sm font-medium text-gray-700">Tu Resumen (mínimo 5 líneas)</label>
+                    <textarea id="resumen-texto-usuario" rows="8" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm" placeholder="Escribe tu síntesis aquí..."></textarea>
+                </div>
+
+                <!-- Botones de Acción -->
+                <button id="evaluar-resumen-btn" class="w-full bg-blue-600 text-white font-semibold py-2 px-4 rounded-lg shadow-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-colors">
+                    Autoevaluar con IA
+                </button>
+                <button id="siguiente-apartado-btn" class="hidden w-full bg-green-600 text-white font-semibold py-2 px-4 rounded-lg shadow-md hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 transition-colors">
+                    Siguiente Apartado &rarr;
+                </button>
+
+                <!-- Contenedor de Feedback de la IA -->
+                <div id="ia-feedback-container" class="hidden mt-4 p-4 bg-gray-50 rounded-lg border border-gray-200">
+                    <div id="ia-resumen-generado">
+                        <!-- El resumen de referencia de la IA se cargará aquí -->
+                    </div>
+                    <div id="ia-evaluacion" class="mt-4">
+                        <!-- La evaluación del alumno se cargará aquí -->
+                    </div>
+                </div>
             </div>
         </div>
-
-        <main id="student-workspace" class="grid grid-cols-1 lg:grid-cols-2 gap-8">
-            <div class="bg-white p-6 rounded-2xl shadow-lg border border-gray-200">
-                <div class="flex justify-between items-center mb-4">
-                    <h2 id="section-title" class="text-2xl font-bold text-gray-800"></h2>
-                    <button id="alternative-explanation-btn" class="flex items-center space-x-2 bg-purple-100 text-purple-700 font-semibold py-2 px-4 rounded-lg hover:bg-purple-200 transition-transform transform hover:scale-105">
-                        <span>✨ Explicación Alternativa</span>
-                    </button>
-                </div>
-                <div id="source-text-container" class="prose prose-custom text-gray-700 h-96 overflow-y-auto p-4 border rounded-lg bg-gray-50">
-                    <div id="source-text-display"></div>
-                    <div id="alternative-explanation-display" class="hidden"></div>
-                </div>
-            </div>
-
-            <div class="bg-white p-6 rounded-2xl shadow-lg border border-gray-200">
-                <h2 class="text-2xl font-bold mb-4 text-gray-800">Tu Resumen del Apartado</h2>
-                <textarea id="student-summary" class="w-full h-64 p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 transition" placeholder="Escribe aquí tu resumen..."></textarea>
-                <div class="flex flex-wrap items-center justify-between mt-4 gap-4">
-                     <div class="flex items-center gap-2">
-                        <button id="evaluate-btn" class="bg-blue-600 text-white font-bold py-3 px-6 rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-4 focus:ring-blue-300 transition-transform transform hover:scale-105">Autoevaluar</button>
-                        <button id="gemini-evaluate-btn" disabled class="flex items-center space-x-2 bg-green-600 text-white font-bold py-3 px-6 rounded-lg hover:bg-green-700 focus:outline-none focus:ring-4 focus:ring-green-300 transition-transform transform hover:scale-105 disabled:bg-gray-400 disabled:cursor-not-allowed">
-                            <span>✨ Evaluar Razonamiento</span></button>
-                    </div>
-                    <div class="text-sm text-gray-600 font-medium">Palabras: <span id="word-count">0</span></div>
-                </div>
-                
-                <div id="feedback-area" class="mt-6" hidden>
-                    <div id="feedback-content" class="grid grid-cols-1 md:grid-cols-2 gap-4"></div>
-                </div>
-                <div id="gemini-feedback-area" class="mt-6" hidden></div>
-                
-                <div id="navigation-area" class="mt-6 text-right" hidden>
-                    <button id="next-section-btn" class="bg-indigo-600 text-white font-bold py-3 px-8 rounded-lg hover:bg-indigo-700 focus:outline-none focus:ring-4 focus:ring-indigo-300 transition-transform transform hover:scale-105">Siguiente Apartado →</button>
-                </div>
-            </div>
-        </main>
     </div>
-    
+
 </body>
 </html>
